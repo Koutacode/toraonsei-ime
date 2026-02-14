@@ -12,7 +12,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Tora Onsei Voice IME"
+            android:text="トラ音声入力キーボード"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -20,7 +20,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="1) IMEを有効化 → 2) このIMEを選択 → 3) 入力欄でマイク長押し" />
+            android:text="1) キーボードを有効化 → 2) このキーボードを選択 → 3) 入力欄でマイク長押し" />
 
         <Button
             android:id="@+id/openImeSettingsButton"

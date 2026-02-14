@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Tora Onsei IME</string>
-    <string name="ime_name">Tora Onsei Voice IME</string>
-    <string name="subtype_ja">Japanese Voice</string>
+    <string name="app_name">トラ音声IME</string>
+    <string name="ime_name">トラ音声入力キーボード</string>
+    <string name="subtype_ja">日本語 音声入力</string>
 </resources>
