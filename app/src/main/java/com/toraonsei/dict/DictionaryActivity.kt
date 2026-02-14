@@ -100,7 +100,7 @@ class DictionaryActivity : AppCompatActivity() {
         listItems.clear()
         listItems.addAll(
             entries.map { entry ->
-                "${entry.word} / よみ:${entry.readingKana} / p:${entry.priority}"
+                "単語:${entry.word} / 読み:${entry.readingKana} / 優先度:${entry.priority}"
             }
         )
         adapter.notifyDataSetChanged()
