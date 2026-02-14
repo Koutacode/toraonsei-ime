@@ -22,6 +22,79 @@
             android:layout_marginTop="6dp"
             android:text="1) キーボードを有効化 → 2) このキーボードを選択 → 3) 入力欄で録音開始/停止をタップ" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="動作モード"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/localOnlyModeStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="端末内完結モード: 有効（ネット通信なし）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="利用シーン（既定）" />
+
+        <Spinner
+            android:id="@+id/usageSceneModeSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="アプリロック"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/lockStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="ロック状態を確認中..." />
+
+        <EditText
+            android:id="@+id/passcodeEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="ロック解除パスワード"
+            android:inputType="numberPassword"
+            android:maxLength="8" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/unlockButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="解除" />
+
+            <Button
+                android:id="@+id/lockButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="再ロック" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/openImeSettingsButton"
             android:layout_width="match_parent"
@@ -41,7 +114,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="マイク権限を許可" />
+            android:text="マイク/通知権限を許可" />
 
         <Button
             android:id="@+id/openDictionaryButton"
@@ -49,6 +122,134 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="単語帳を開く" />
+
+        <Button
+            android:id="@+id/openDictionaryMaintenanceButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="辞書メンテ（ワンタップ更新）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="変換設定"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="文章整形の強さ" />
+
+        <Spinner
+            android:id="@+id/formatStrengthSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="英語翻訳スタイル" />
+
+        <Spinner
+            android:id="@+id/englishStyleSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="音声認識補正"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/recognitionNoiseFilterSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="認識テキストのノイズ除去（フィラー/ノイズ記号）を有効にする"
+            android:textColor="#111827"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/recognitionNoiseFilterStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="認識補正: 有効（推奨）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="ローカルASRモデル"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/asrModelStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="状態: 設定済み（システム音声認識を使用）" />
+
+        <TextView
+            android:id="@+id/asrModelSecondPassText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="高精度再評価: ローカルモデル未配置" />
+
+        <TextView
+            android:id="@+id/asrModelPathText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="配置先: files/sherpa_asr/{fast,accurate}" />
+
+        <Button
+            android:id="@+id/importAsrModelButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="ローカルASRモデルを設定" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="ローカルLLM"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/localLlmStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="状態: 設定済み（内蔵整形エンジンを使用）" />
+
+        <TextView
+            android:id="@+id/localLlmPathText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="配置先: files/local_llm/model.gguf または externalFiles/local_llm/model.gguf" />
+
+        <Button
+            android:id="@+id/importLlmModelButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="ローカルLLMモデル(.gguf)を設定" />
 
         <TextView
             android:layout_width="match_parent"
@@ -62,7 +263,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="・音声は手動で開始/停止（常時録音なし）\n・外部送信なし（ローカル処理のみ）\n・単語帳は端末内保存\n・整形は入力文の範囲で実施（創作しない）" />
+            android:text="・音声は手動で開始/停止（常時録音なし）\n・単語帳は端末内保存\n・変換はローカル処理のみ（通信しない）" />
 
     </LinearLayout>
 </ScrollView>
