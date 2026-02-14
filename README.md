@@ -1,4 +1,4 @@
-# Tora Onsei Voice IME (Android/Kotlin)
+# トラ音声IME（Android/Kotlin）
 
 ローカル専用の音声入力IMEです。
 

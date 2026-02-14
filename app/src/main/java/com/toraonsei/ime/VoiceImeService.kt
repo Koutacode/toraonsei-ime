@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -14,7 +15,6 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
-import com.google.android.material.button.MaterialButton
 import com.toraonsei.R
 import com.toraonsei.dict.UserDictionaryRepository
 import com.toraonsei.format.LocalFormatter
@@ -54,25 +54,25 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private var rootView: View? = null
     private var candidateContainer: LinearLayout? = null
-    private var addWordButton: MaterialButton? = null
-    private var micButton: MaterialButton? = null
-    private var modeShortButton: MaterialButton? = null
-    private var modeLongButton: MaterialButton? = null
+    private var addWordButton: Button? = null
+    private var micButton: Button? = null
+    private var modeShortButton: Button? = null
+    private var modeLongButton: Button? = null
     private var statusText: TextView? = null
 
     private var longPanel: LinearLayout? = null
     private var rawPreviewText: TextView? = null
     private var formattedPreviewText: TextView? = null
-    private var bulletButton: MaterialButton? = null
-    private var casualButton: MaterialButton? = null
-    private var insertRawButton: MaterialButton? = null
-    private var insertFormattedButton: MaterialButton? = null
+    private var bulletButton: Button? = null
+    private var casualButton: Button? = null
+    private var insertRawButton: Button? = null
+    private var insertFormattedButton: Button? = null
 
     private var addWordPanel: LinearLayout? = null
     private var addWordEdit: EditText? = null
     private var addReadingEdit: EditText? = null
-    private var saveWordButton: MaterialButton? = null
-    private var cancelWordButton: MaterialButton? = null
+    private var saveWordButton: Button? = null
+    private var cancelWordButton: Button? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +91,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val view = LayoutInflater.from(this).inflate(R.layout.keyboard_view, null)
         bindViews(view)
         setupListeners()
+        updateMicState()
         applyModeUI()
         refreshSuggestions()
         rootView = view
@@ -347,10 +348,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val button = micButton ?: return
         if (isRecording) {
             button.text = "録音中"
-            button.background = ContextCompat.getDrawable(this, R.drawable.bg_mic_active)
+            button.setBackgroundResource(R.drawable.bg_mic_active)
         } else {
             button.text = "押して録音"
-            button.background = null
+            button.setBackgroundResource(R.drawable.bg_chip)
         }
     }
 
@@ -413,12 +414,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         container.removeAllViews()
 
         suggestions.take(5).forEach { suggestion ->
-            val button = MaterialButton(this).apply {
+            val button = Button(this).apply {
                 text = suggestion
                 textSize = 13f
                 isAllCaps = false
                 minWidth = dp(84)
                 setPadding(dp(10), dp(0), dp(10), dp(0))
+                setBackgroundResource(R.drawable.bg_chip)
+                setTextColor(0xFFFFFFFF.toInt())
                 setOnClickListener {
                     lastSelectedCandidate = suggestion
                     commitAndTrack(suggestion)

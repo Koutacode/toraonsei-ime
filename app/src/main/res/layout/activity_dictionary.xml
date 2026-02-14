@@ -16,7 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:text="読み(かな)は必須。重複語は同一wordで上書き保存されます。" />
+        android:text="読み(かな)は必須。重複語は同一単語で上書き保存されます。" />
 
     <EditText
         android:id="@+id/wordInput"
@@ -39,7 +39,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="priority(任意: 0〜)"
+        android:hint="優先度(任意: 0〜)"
         android:inputType="numberSigned" />
 
     <Button
