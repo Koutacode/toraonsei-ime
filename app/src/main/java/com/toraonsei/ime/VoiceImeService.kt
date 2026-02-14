@@ -6,6 +6,7 @@ import android.inputmethodservice.InputMethodService
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -44,6 +45,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private var mode: ImeMode = ImeMode.SHORT
     private var isRecording = false
+    private var manualKeyboardMode: ManualKeyboardMode = ManualKeyboardMode.TEXT
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
@@ -59,6 +61,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var modeShortButton: Button? = null
     private var modeLongButton: Button? = null
     private var statusText: TextView? = null
+    private var keyModeTextButton: Button? = null
+    private var keyModeTenButton: Button? = null
+    private var keyBackspaceButton: Button? = null
+    private var textKeyboardPanel: LinearLayout? = null
+    private var tenKeyPanel: LinearLayout? = null
 
     private var longPanel: LinearLayout? = null
     private var rawPreviewText: TextView? = null
@@ -89,12 +96,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     override fun onCreateInputView(): View {
         val view = LayoutInflater.from(this).inflate(R.layout.keyboard_view, null)
+        rootView = view
         bindViews(view)
         setupListeners()
         updateMicState()
+        applyManualKeyboardMode()
         applyModeUI()
         refreshSuggestions()
-        rootView = view
         return view
     }
 
@@ -188,6 +196,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         modeShortButton = view.findViewById(R.id.modeShortButton)
         modeLongButton = view.findViewById(R.id.modeLongButton)
         statusText = view.findViewById(R.id.statusText)
+        keyModeTextButton = view.findViewById(R.id.keyModeTextButton)
+        keyModeTenButton = view.findViewById(R.id.keyModeTenButton)
+        keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
+        textKeyboardPanel = view.findViewById(R.id.textKeyboardPanel)
+        tenKeyPanel = view.findViewById(R.id.tenKeyPanel)
 
         longPanel = view.findViewById(R.id.longPanel)
         rawPreviewText = view.findViewById(R.id.rawPreviewText)
@@ -205,6 +218,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun setupListeners() {
+        rootView?.let { bindTaggedKeyButtons(it) }
+
         addWordButton?.setOnClickListener {
             openAddWordPanel()
         }
@@ -244,6 +259,20 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             mode = ImeMode.LONG
             applyModeUI()
             refreshSuggestions()
+        }
+
+        keyModeTextButton?.setOnClickListener {
+            manualKeyboardMode = ManualKeyboardMode.TEXT
+            applyManualKeyboardMode()
+        }
+
+        keyModeTenButton?.setOnClickListener {
+            manualKeyboardMode = ManualKeyboardMode.TENKEY
+            applyManualKeyboardMode()
+        }
+
+        keyBackspaceButton?.setOnClickListener {
+            handleBackspace()
         }
 
         bulletButton?.setOnClickListener {
@@ -317,6 +346,55 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
         modeShortButton?.alpha = if (!isLong) 1f else 0.65f
         modeLongButton?.alpha = if (isLong) 1f else 0.65f
+    }
+
+    private fun applyManualKeyboardMode() {
+        val isText = manualKeyboardMode == ManualKeyboardMode.TEXT
+        textKeyboardPanel?.isVisible = isText
+        tenKeyPanel?.isVisible = !isText
+        keyModeTextButton?.alpha = if (isText) 1f else 0.65f
+        keyModeTenButton?.alpha = if (!isText) 1f else 0.65f
+    }
+
+    private fun bindTaggedKeyButtons(root: View) {
+        if (root is Button) {
+            val tag = root.tag as? String
+            if (!tag.isNullOrBlank()) {
+                root.setOnClickListener { handleTaggedKeyInput(tag) }
+            }
+            return
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                bindTaggedKeyButtons(root.getChildAt(i))
+            }
+        }
+    }
+
+    private fun handleTaggedKeyInput(tag: String) {
+        when (tag) {
+            "SPACE" -> commitTextDirect(" ")
+            "ENTER" -> commitTextDirect("\n")
+            "BACKSPACE" -> handleBackspace()
+            else -> commitTextDirect(tag)
+        }
+    }
+
+    private fun handleBackspace() {
+        val ic = currentInputConnection ?: return
+        val selected = ic.getSelectedText(0)
+        if (!selected.isNullOrEmpty()) {
+            ic.commitText("", 1)
+        } else {
+            ic.deleteSurroundingText(1, 0)
+        }
+        refreshSuggestions()
+    }
+
+    private fun commitTextDirect(text: String) {
+        if (text.isEmpty()) return
+        currentInputConnection?.commitText(text, 1)
+        refreshSuggestions()
     }
 
     private fun startRecordingIfAllowed() {
@@ -438,16 +516,17 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun commitAndTrack(text: String) {
-        val target = text.trim()
-        if (target.isBlank()) return
+        if (text.isEmpty()) return
 
-        currentInputConnection?.commitText(target, 1)
-        lastCommittedText = target
+        currentInputConnection?.commitText(text, 1)
+        if (text.isNotBlank()) {
+            lastCommittedText = text
 
-        val pkg = currentPackageName()
-        val memory = appMemory.getOrPut(pkg) { AppBuffer() }
-        memory.appendHistory(target)
-        memory.addRecentPhrase(target)
+            val pkg = currentPackageName()
+            val memory = appMemory.getOrPut(pkg) { AppBuffer() }
+            memory.appendHistory(text)
+            memory.addRecentPhrase(text)
+        }
 
         refreshSuggestions()
     }
@@ -592,5 +671,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                     )
                 }
         }
+    }
+
+    private enum class ManualKeyboardMode {
+        TEXT,
+        TENKEY
     }
 }
