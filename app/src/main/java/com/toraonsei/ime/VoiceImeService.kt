@@ -11,11 +11,13 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -55,7 +57,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var dictionaryEntries: List<DictionaryEntry> = emptyList()
     private var recordingRequested = false
     private var isRecognizerActive = false
-    private var manualKeyboardMode: ManualKeyboardMode = ManualKeyboardMode.TENKEY
     private var restartListeningJob: Job? = null
 
     private var lastCommittedText: String = ""
@@ -66,6 +67,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private val flickStartByButtonId = mutableMapOf<Int, Pair<Float, Float>>()
     private var flickPopupWindow: PopupWindow? = null
     private var flickPopupText: TextView? = null
+    private var toggleTapState: ToggleTapState? = null
 
     private var rootView: View? = null
     private var candidateContainer: LinearLayout? = null
@@ -73,11 +75,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var micButton: Button? = null
     private var formatContextButton: Button? = null
     private var statusText: TextView? = null
-    private var keyModeTextButton: Button? = null
-    private var keyModeTenButton: Button? = null
     private var keyBackspaceButton: Button? = null
     private var flickGuideText: TextView? = null
-    private var textKeyboardPanel: LinearLayout? = null
     private var tenKeyPanel: LinearLayout? = null
 
     private var addWordPanel: LinearLayout? = null
@@ -204,11 +203,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         micButton = view.findViewById(R.id.micButton)
         formatContextButton = view.findViewById(R.id.formatContextButton)
         statusText = view.findViewById(R.id.statusText)
-        keyModeTextButton = view.findViewById(R.id.keyModeTextButton)
-        keyModeTenButton = view.findViewById(R.id.keyModeTenButton)
         keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
         flickGuideText = view.findViewById(R.id.flickGuideText)
-        textKeyboardPanel = view.findViewById(R.id.textKeyboardPanel)
         tenKeyPanel = view.findViewById(R.id.tenKeyPanel)
 
         addWordPanel = view.findViewById(R.id.addWordPanel)
@@ -237,16 +233,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
         formatContextButton?.setOnClickListener {
             formatLastVoiceInputWithContext()
-        }
-
-        keyModeTextButton?.setOnClickListener {
-            manualKeyboardMode = ManualKeyboardMode.TEXT
-            applyManualKeyboardMode()
-        }
-
-        keyModeTenButton?.setOnClickListener {
-            manualKeyboardMode = ManualKeyboardMode.TENKEY
-            applyManualKeyboardMode()
         }
 
         keyBackspaceButton?.setOnClickListener {
@@ -279,14 +265,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun applyManualKeyboardMode() {
-        val isText = manualKeyboardMode == ManualKeyboardMode.TEXT
-        textKeyboardPanel?.isVisible = isText
-        tenKeyPanel?.isVisible = !isText
-        flickGuideText?.isVisible = !isText
+        tenKeyPanel?.isVisible = true
+        flickGuideText?.isVisible = true
         hideFlickGuide()
         dismissFlickPopup()
-        keyModeTextButton?.alpha = if (isText) 1f else 0.65f
-        keyModeTenButton?.alpha = if (!isText) 1f else 0.65f
     }
 
     private fun bindTaggedKeyButtons(root: View) {
@@ -338,9 +320,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                                 endX = event.x,
                                 endY = event.y
                             )
-                            val output = resolveFlickKana(tag, direction)
-                            if (output.isNotBlank()) {
-                                commitTextDirect(output)
+                            if (direction == FlickDirection.CENTER) {
+                                handleCenterTapToggle(tag)
+                            } else {
+                                clearToggleTapState()
+                                val output = resolveFlickKana(tag, direction)
+                                if (output.isNotBlank()) {
+                                    commitTextDirect(output)
+                                }
                             }
                             hideFlickGuide()
                             dismissFlickPopup()
@@ -411,14 +398,78 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun handleTaggedKeyInput(tag: String) {
+        clearToggleTapState()
         when (tag) {
             "SPACE" -> commitTextDirect(" ")
             "ENTER" -> commitTextDirect("\n")
+            "BACKSPACE", "UNDO_LAST" -> handleBackspace()
+            "CURSOR_LEFT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
+            "CURSOR_RIGHT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
+            "MODE_CYCLE" -> setStatus("タップ連打入力: ON")
+            "LANG_PICKER" -> showInputMethodPickerSafely()
             "DAKUTEN" -> applyDakuten()
             "HANDAKUTEN" -> applyHandakuten()
             "SMALL" -> applySmallKana()
             else -> commitTextDirect(tag)
         }
+    }
+
+    private fun handleCenterTapToggle(tag: String) {
+        val table = flickMap[tag] ?: return
+        val now = System.currentTimeMillis()
+        val existing = toggleTapState
+
+        if (
+            existing != null &&
+            existing.tag == tag &&
+            now - existing.timestampMs <= toggleTapWindowMs
+        ) {
+            val nextIndex = (existing.index + 1) % table.size
+            val nextText = table[nextIndex]
+            val replaced = replaceToggleCommittedText(existing.output, nextText)
+            if (replaced) {
+                toggleTapState = ToggleTapState(
+                    tag = tag,
+                    index = nextIndex,
+                    timestampMs = now,
+                    output = nextText
+                )
+                showFlickGuide(tag, directionFromIndex(nextIndex))
+                return
+            }
+        }
+
+        val first = table[0]
+        commitTextDirect(first)
+        toggleTapState = ToggleTapState(
+            tag = tag,
+            index = 0,
+            timestampMs = now,
+            output = first
+        )
+        showFlickGuide(tag, FlickDirection.CENTER)
+    }
+
+    private fun replaceToggleCommittedText(previous: String, next: String): Boolean {
+        val ic = currentInputConnection ?: return false
+        if (previous.isBlank()) return false
+
+        val before = ic.getTextBeforeCursor(previous.length, 0)?.toString().orEmpty()
+        if (!before.endsWith(previous)) {
+            return false
+        }
+
+        ic.deleteSurroundingText(previous.length, 0)
+        ic.commitText(next, 1)
+        if (next.isNotBlank()) {
+            lastCommittedText = next
+        }
+        refreshSuggestions()
+        return true
+    }
+
+    private fun clearToggleTapState() {
+        toggleTapState = null
     }
 
     private fun showFlickGuide(tag: String, direction: FlickDirection) {
@@ -456,7 +507,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             applySpan(RelativeSizeSpan(0.82f), parts.down)
             applySpan(RelativeSizeSpan(1.48f), parts.center)
             applySpan(StyleSpan(Typeface.BOLD), parts.center)
-            applySpan(ForegroundColorSpan(0xFF0F172A.toInt()), parts.center)
+            applySpan(ForegroundColorSpan(0xFFF8FAFC.toInt()), parts.center)
         }
     }
 
@@ -588,6 +639,16 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             flickPopupWindow?.dismiss()
         } catch (_: RuntimeException) {
             // dismiss失敗は無視
+        }
+    }
+
+    private fun directionFromIndex(index: Int): FlickDirection {
+        return when (index) {
+            1 -> FlickDirection.LEFT
+            2 -> FlickDirection.UP
+            3 -> FlickDirection.RIGHT
+            4 -> FlickDirection.DOWN
+            else -> FlickDirection.CENTER
         }
     }
 
@@ -734,6 +795,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun handleBackspace() {
+        clearToggleTapState()
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
@@ -749,6 +811,12 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         currentInputConnection?.commitText(text, 1)
         if (text.isNotBlank()) {
             lastCommittedText = text
+            val pkg = currentPackageName()
+            val memory = appMemory.getOrPut(pkg) { AppBuffer() }
+            memory.appendHistory(text)
+            if (text.length >= 2 && !text.contains('\n')) {
+                memory.addRecentPhrase(text)
+            }
         }
         refreshSuggestions()
     }
@@ -827,6 +895,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun commitAndTrack(text: String) {
         if (text.isEmpty()) return
+        clearToggleTapState()
         currentInputConnection?.commitText(text, 1)
 
         if (text.isNotBlank()) {
@@ -855,6 +924,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun currentPackageName(): String {
         return currentInputEditorInfo?.packageName ?: "unknown"
+    }
+
+    private fun showInputMethodPickerSafely() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.showInputMethodPicker()
     }
 
     private fun applyDictionaryCorrections(input: String): String {
@@ -947,6 +1021,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val down: SpanRange
     )
 
+    private data class ToggleTapState(
+        val tag: String,
+        val index: Int,
+        val timestampMs: Long,
+        val output: String
+    )
+
     private data class PhraseStats(
         var frequency: Int = 1,
         var lastUsedAt: Long = System.currentTimeMillis()
@@ -998,17 +1079,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
-    private enum class ManualKeyboardMode {
-        TEXT,
-        TENKEY
-    }
-
     private enum class FlickDirection {
         CENTER, UP, RIGHT, DOWN, LEFT
     }
 
     private companion object {
-        const val defaultFlickGuideText = "押したまま: 左=い / 上=う / 右=え / 下=お"
+        const val defaultFlickGuideText = "タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
+        const val toggleTapWindowMs = 850L
 
         val flickMap = mapOf(
             "F1" to arrayOf("あ", "い", "う", "え", "お"),
