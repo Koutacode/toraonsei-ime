@@ -7,54 +7,20 @@
     android:background="@drawable/bg_keyboard"
     android:padding="14dp">
 
-    <HorizontalScrollView
-        android:id="@+id/candidateScroll"
-        android:layout_width="0dp"
-        android:layout_height="58dp"
-        android:fillViewport="true"
-        android:overScrollMode="never"
-        android:scrollbars="none"
-        app:layout_constraintEnd_toStartOf="@+id/addWordButton"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <LinearLayout
-            android:id="@+id/candidateContainer"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:orientation="horizontal" />
-    </HorizontalScrollView>
-
-    <Button
-        android:id="@+id/addWordButton"
-        android:layout_width="wrap_content"
-        android:layout_height="52dp"
-        android:layout_marginStart="10dp"
-        android:background="@drawable/bg_flick_action_key"
-        android:text="+単語"
-        android:textAllCaps="false"
-        android:textColor="#F8FAFC"
-        android:textSize="16sp"
-        app:layout_constraintBottom_toBottomOf="@+id/candidateScroll"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@+id/candidateScroll" />
-
     <LinearLayout
         android:id="@+id/recordRow"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
         android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/candidateScroll">
+        app:layout_constraintTop_toTopOf="parent">
 
         <Button
             android:id="@+id/micButton"
             android:layout_width="0dp"
             android:layout_height="96dp"
-            android:layout_weight="2.3"
+            android:layout_weight="2.0"
             android:background="@drawable/bg_chip"
             android:text="録音開始"
             android:textAllCaps="false"
@@ -63,13 +29,25 @@
             android:textStyle="bold" />
 
         <Button
+            android:id="@+id/sceneModeButton"
+            android:layout_width="0dp"
+            android:layout_height="96dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="0.95"
+            android:background="@drawable/bg_flick_action_key"
+            android:text="メッセージ"
+            android:textAllCaps="false"
+            android:textColor="#F8FAFC"
+            android:textSize="16sp" />
+
+        <Button
             android:id="@+id/formatContextButton"
             android:layout_width="0dp"
             android:layout_height="96dp"
             android:layout_marginStart="8dp"
-            android:layout_weight="1"
+            android:layout_weight="0.95"
             android:background="@drawable/bg_flick_action_key"
-            android:text="文面整形"
+            android:text="変換"
             android:textAllCaps="false"
             android:textColor="#F8FAFC"
             android:textSize="18sp" />
@@ -78,11 +56,8 @@
     <TextView
         android:id="@+id/statusText"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="待機中"
-        android:textColor="#334155"
-        android:textSize="16sp"
+        android:layout_height="0dp"
+        android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/recordRow" />
@@ -91,13 +66,13 @@
         android:id="@+id/manualInputPanel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="6dp"
         android:background="#D4D6DB"
         android:orientation="vertical"
         android:padding="10dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/statusText">
+        app:layout_constraintTop_toBottomOf="@+id/recordRow">
 
         <LinearLayout
             android:id="@+id/tenKeyPanel"
@@ -106,21 +81,67 @@
             android:orientation="vertical"
             android:visibility="visible">
 
+            <LinearLayout
+                android:id="@+id/candidateRow"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginBottom="6dp"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <HorizontalScrollView
+                    android:id="@+id/candidateScroll"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:fillViewport="true"
+                    android:overScrollMode="never"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/candidateContainer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <Button
+                    android:id="@+id/clipboardPasteButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_flick_action_key"
+                    android:text="貼付け"
+                    android:textAllCaps="false"
+                    android:textColor="#F8FAFC"
+                    android:textSize="16sp" />
+
+                <Button
+                    android:id="@+id/addWordButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_flick_action_key"
+                    android:text="+単語"
+                    android:textAllCaps="false"
+                    android:textColor="#F8FAFC"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/flickGuideText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:background="#C8CBD4"
-                android:padding="8dp"
-                android:text="タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
-                android:textColor="#0F172A"
-                android:textSize="15sp" />
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
+                android:weightSum="5.75"
                 android:baselineAligned="false">
 
                 <Button
@@ -128,11 +149,11 @@
                     android:layout_height="96dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
-                    android:tag="CONVERT"
-                    android:text="変換"
+                    android:tag="LANG_PICKER"
+                    android:text="切り替え"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="18sp" />
+                    android:textSize="16sp" />
 
                 <Button
                     android:layout_width="0dp"
@@ -330,11 +351,11 @@
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
-                    android:tag="LANG_PICKER"
-                    android:text="日本語"
+                    android:tag="CONVERT"
+                    android:text="変換"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="17sp" />
+                    android:textSize="18sp" />
             </LinearLayout>
 
             <LinearLayout

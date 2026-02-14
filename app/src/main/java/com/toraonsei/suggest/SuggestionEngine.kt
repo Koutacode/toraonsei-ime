@@ -63,8 +63,9 @@ class SuggestionEngine {
             .sortedByDescending { it.value }
             .map { it.key }
             .filter { it.isNotBlank() }
+            .filterNot { blockedSuggestionRegex.matches(it.trim()) }
             .distinct()
-            .take(5)
+            .take(8)
     }
 
     private fun addRuleSuggestions(candidates: MutableMap<String, Int>, context: String) {
@@ -102,5 +103,8 @@ class SuggestionEngine {
     private companion object {
         val tokenRegex = Regex("[\\p{IsHan}\\p{InHiragana}\\p{InKatakana}A-Za-z0-9]{1,12}$")
         val questionRegex = Regex("(どう|いつ|どこ|何|なに|ですか|ますか|かな)")
+        val blockedSuggestionRegex = Regex(
+            "^(録音中.*|待機中.*|認識中.*|音声入力.*エラー.*|音声を認識できませんでした)$"
+        )
     }
 }

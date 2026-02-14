@@ -4,6 +4,9 @@ This app package includes a derived local conversion dictionary generated from:
 - SKK-JISYO.propernoun
 - SKK-JISYO.jinmei
 - SKK-JISYO.station
+- SKK-JISYO.ML
+- SKK-JISYO.assoc
+- SKK-JISYO.geo
 
 Source:
 https://skk-dev.github.io/dict/
@@ -12,4 +15,3 @@ License notice from source dictionaries:
 GNU General Public License (GPL), version 2 or later.
 
 If you redistribute this app binary, check license obligations for included dictionary data.
-

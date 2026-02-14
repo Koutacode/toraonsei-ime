@@ -4,97 +4,118 @@
     android:id="@+id/keyboardRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_keyboard"
-    android:padding="8dp">
+    android:background="@color/keyboard_bg"
+    android:padding="2dp">
 
-    <HorizontalScrollView
-        android:id="@+id/candidateScroll"
-        android:layout_width="0dp"
-        android:layout_height="44dp"
-        android:fillViewport="true"
-        android:overScrollMode="never"
-        android:scrollbars="none"
-        app:layout_constraintEnd_toStartOf="@+id/addWordButton"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <LinearLayout
-            android:id="@+id/candidateContainer"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:orientation="horizontal" />
-    </HorizontalScrollView>
-
-    <Button
-        android:id="@+id/addWordButton"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_marginStart="8dp"
-        android:background="@drawable/bg_flick_action_key"
-        android:text="+単語"
-        android:textAllCaps="false"
-        android:textColor="#F8FAFC"
-        android:textSize="13sp"
-        app:layout_constraintBottom_toBottomOf="@+id/candidateScroll"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@+id/candidateScroll" />
-
+    <!-- 1. 候補表示エリア (最上段) - 高さを拡大 -->
     <LinearLayout
-        android:id="@+id/recordRow"
+        android:id="@+id/candidateRow"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_height="56dp"
+        android:background="@color/candidate_bar_bg"
         android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/candidateScroll">
+        app:layout_constraintTop_toTopOf="parent">
 
-        <Button
-            android:id="@+id/micButton"
+        <HorizontalScrollView
+            android:id="@+id/candidateScroll"
             android:layout_width="0dp"
-            android:layout_height="74dp"
-            android:layout_weight="2.2"
-            android:background="@drawable/bg_chip"
-            android:text="録音開始"
-            android:textAllCaps="false"
-            android:textColor="#F8FAFC"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/formatContextButton"
-            android:layout_width="0dp"
-            android:layout_height="74dp"
-            android:layout_marginStart="6dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="@drawable/bg_flick_action_key"
-            android:text="文面整形"
-            android:textAllCaps="false"
-            android:textColor="#F8FAFC"
-            android:textSize="14sp" />
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/candidateContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- 2. 音声入力 & アクションバー -->
+    <LinearLayout
+        android:id="@+id/recordRow"
+        android:layout_width="0dp"
+        android:layout_height="68dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/candidateRow">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/clipboardPasteButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="54dp"
+            android:text="貼付"
+            android:textSize="14sp"
+            app:strokeColor="@color/key_stroke"
+            app:strokeWidth="1dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/micButton"
+            style="@style/Widget.Material3.Button.ElevatedButton"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/primary"
+            android:text="音声入力"
+            android:textColor="@color/on_primary"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:cornerRadius="12dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sceneModeButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="54dp"
+            android:text="仕事用"
+            android:textSize="14sp"
+            app:strokeColor="@color/key_stroke"
+            app:strokeWidth="1dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/formatContextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:layout_marginStart="4dp"
+            android:padding="0dp"
+            android:text="変"
+            android:textSize="16sp"
+            app:strokeColor="@color/key_stroke"
+            app:strokeWidth="1dp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="待機中"
-        android:textColor="#334155"
-        android:textSize="12sp"
+        android:layout_height="28dp"
+        android:gravity="center"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/recordRow" />
 
+    <!-- 3. フリックキーボード (常時表示) - 枠組みと文字サイズを強化 -->
     <LinearLayout
         android:id="@+id/manualInputPanel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:background="#D4D6DB"
         android:orientation="vertical"
-        android:padding="6dp"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/statusText">
@@ -104,380 +125,133 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:visibility="visible">
+            android:padding="2dp">
 
-            <TextView
-                android:id="@+id/flickGuideText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:background="#C8CBD4"
-                android:padding="4dp"
-                android:text="タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
-                android:textColor="#0F172A"
-                android:textSize="10sp" />
-
+            <!-- 1段目 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:baselineAligned="false">
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="CONVERT"
-                    android:text="変換"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F1"
-                    android:text="あ"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F2"
-                    android:text="か"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F3"
-                    android:text="さ"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:id="@+id/keyBackspaceButton"
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="BACKSPACE"
-                    android:text="⌫"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
+                android:weightSum="5.6">
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="LANG_PICKER" android:text="切替" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="14sp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F1" android:text="あ" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F2" android:text="か" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F3" android:text="さ" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:id="@+id/keyBackspaceButton" android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="BACKSPACE" android:text="⌫" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="20sp"/>
             </LinearLayout>
 
+            <!-- 2段目 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:orientation="horizontal"
-                android:baselineAligned="false">
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="CURSOR_LEFT"
-                    android:text="‹"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F4"
-                    android:text="た"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F5"
-                    android:text="な"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F6"
-                    android:text="は"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="CURSOR_RIGHT"
-                    android:text="›"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
+                android:weightSum="5.6">
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CURSOR_LEFT" android:text="‹" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="20sp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F4" android:text="た" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F5" android:text="な" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F6" android:text="は" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CURSOR_RIGHT" android:text="›" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="20sp"/>
             </LinearLayout>
 
+            <!-- 3段目 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:orientation="horizontal"
-                android:baselineAligned="false">
-
-                <Button
-                    android:id="@+id/inputModeButton"
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="MODE_CYCLE"
-                    android:text="あa1"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="16sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F7"
-                    android:text="ま"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F8"
-                    android:text="や"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F9"
-                    android:text="ら"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="LANG_PICKER"
-                    android:text="日本語"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="12sp" />
+                android:weightSum="5.6">
+                <com.google.android.material.button.MaterialButton android:id="@+id/inputModeButton" android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="MODE_CYCLE" android:text="あa1" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="14sp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F7" android:text="ま" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F8" android:text="や" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F9" android:text="ら" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CONVERT" android:text="変換" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="16sp"/>
             </LinearLayout>
 
+            <!-- 4段目 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:orientation="horizontal"
-                android:baselineAligned="false">
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="SPACE"
-                    android:text="空白"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:tag="SMALL"
-                    android:text="小"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="F0"
-                    android:text="わ"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1.25"
-                    android:background="@drawable/bg_flick_key"
-                    android:gravity="center"
-                    android:singleLine="false"
-                    android:tag="FS"
-                    android:text="？！"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
-
-                <Button
-                    android:layout_width="0dp"
-                    android:layout_height="66dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_flick_action_key"
-                    android:tag="ENTER"
-                    android:text="⏎"
-                    android:textAllCaps="false"
-                    android:textColor="#F8FAFC"
-                    android:textSize="20sp" />
+                android:weightSum="5.6">
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="SPACE" android:text="空白" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="18sp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="SMALL" android:text="小" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F0" android:text="わ" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="FS" android:text="？！" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="ENTER" android:text="⏎" android:backgroundTint="@color/primary" android:textColor="@color/on_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button" app:cornerRadius="8dp" android:textSize="24sp"/>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 単語登録パネル (オーバーレイ) -->
     <LinearLayout
         android:id="@+id/addWordPanel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="#0B1220"
+        android:background="@color/candidate_bar_bg"
+        android:elevation="12dp"
         android:orientation="vertical"
-        android:padding="8dp"
+        android:padding="16dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/manualInputPanel">
+        app:layout_constraintStart_toStartOf="parent">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="単語帳に追加"
-            android:textColor="#E5E7EB"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
             android:textStyle="bold" />
 
         <EditText
             android:id="@+id/addWordEdit"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="#1E293B"
+            android:layout_marginTop="12dp"
+            android:background="@color/key_bg"
             android:hint="単語"
-            android:padding="8dp"
-            android:textColor="#F9FAFB"
-            android:textColorHint="#94A3B8" />
+            android:padding="12dp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint"
+            android:textSize="18sp" />
 
         <EditText
             android:id="@+id/addReadingEdit"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="#1E293B"
-            android:hint="読み(かな) 必須"
-            android:padding="8dp"
-            android:textColor="#F9FAFB"
-            android:textColorHint="#94A3B8" />
+            android:layout_marginTop="12dp"
+            android:background="@color/key_bg"
+            android:hint="読み(かな)"
+            android:padding="12dp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint"
+            android:textSize="18sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal"
-                android:baselineAligned="false">
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/saveWordButton"
+                style="@style/Widget.Material3.Button"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="保存"
-                android:textAllCaps="false" />
+                android:textSize="16sp" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/cancelWordButton"
+                style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="12dp"
                 android:layout_weight="1"
-                android:text="閉じる"
-                android:textAllCaps="false" />
+                android:text="キャンセル"
+                android:textSize="16sp" />
         </LinearLayout>
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
-
