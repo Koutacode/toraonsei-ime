@@ -10,6 +10,9 @@
 - JSONインポート/エクスポート対応（同一wordは上書き）
 - 短文中心: 音声結果を即入力
 - `文面整形` ボタンで、前後文脈 + アプリ別履歴を使ったローカル整形
+  - 標準整形（文脈）
+  - 送信用（話し言葉）
+  - 英語に変換（ローカル簡易変換）
 - かなキー入力 + テンキーフリック入力 + バックスペース
 - 文脈が取れないアプリ向けに、IME側アプリ別履歴バッファ（500文字）
 - ローカル同梱のかな漢字辞書（`assets/kana_kanji_base.tsv`）で変換候補を拡張
@@ -56,6 +59,7 @@
 ## 同梱辞書の更新（自動化）
 1. プロジェクトルートで実行
    - `python scripts/update_kana_kanji_dict.py`
+   - Windowsワンクリック: `scripts\\update_kana_kanji_dict.bat`
 2. 生成物
    - `app/src/main/assets/kana_kanji_base.tsv` を最新化
 3. 候補数を変えたい場合
