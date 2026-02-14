@@ -36,7 +36,6 @@ class SpeechController(
 
         override fun onEndOfSpeech() {
             listening = false
-            callback.onEnd()
         }
 
         override fun onError(error: Int) {
@@ -92,7 +91,13 @@ class SpeechController(
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         listening = true
-        engine.startListening(intent)
+        try {
+            engine.startListening(intent)
+        } catch (e: RuntimeException) {
+            listening = false
+            callback.onError("音声認識の開始に失敗しました")
+            callback.onEnd()
+        }
     }
 
     fun stopListening() {
