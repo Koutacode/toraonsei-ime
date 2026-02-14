@@ -26,6 +26,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
@@ -68,6 +69,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var restartListeningJob: Job? = null
     private var inputMode: InputMode = InputMode.KANA
     private var alphaUppercase = false
+    private var formatAction: FormatAction = FormatAction.CONTEXT
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
@@ -283,7 +285,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         formatContextButton?.setOnClickListener {
-            formatLastVoiceInputWithContext()
+            showFormatActionMenu(it)
+        }
+        formatContextButton?.setOnLongClickListener {
+            applyFormatAction(formatAction)
+            true
         }
 
         keyBackspaceButton?.setOnClickListener {
@@ -328,6 +334,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         cancelWordButton?.setOnClickListener { hideAddWordPanel() }
+        updateFormatButtonUi()
     }
 
     private fun applyManualKeyboardMode() {
@@ -989,7 +996,35 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
-    private fun formatLastVoiceInputWithContext() {
+    private fun showFormatActionMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menu.add(0, FormatAction.CONTEXT.id, 0, "標準整形（文脈）")
+        popup.menu.add(0, FormatAction.CASUAL.id, 1, "送信用（話し言葉）")
+        popup.menu.add(0, FormatAction.ENGLISH.id, 2, "英語に変換")
+
+        popup.setOnMenuItemClickListener { item ->
+            val action = FormatAction.fromId(item.itemId) ?: return@setOnMenuItemClickListener false
+            formatAction = action
+            updateFormatButtonUi()
+            applyFormatAction(action)
+            true
+        }
+        popup.show()
+    }
+
+    private fun updateFormatButtonUi() {
+        formatContextButton?.text = when (formatAction) {
+            FormatAction.CONTEXT -> "文面整形"
+            FormatAction.CASUAL -> "話し言葉"
+            FormatAction.ENGLISH -> "英語変換"
+        }
+    }
+
+    private fun applyFormatAction(action: FormatAction) {
+        if (currentAddWordEditor() != null) {
+            setStatus("単語追加中は文面整形できません")
+            return
+        }
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)?.toString().orEmpty().trim()
         val source = when {
@@ -1006,19 +1041,30 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val pkg = currentPackageName()
         val history = appMemory[pkg]?.history?.toString().orEmpty()
 
-        val formatted = formatter.formatWithContext(
-            input = source,
-            beforeCursor = before,
-            afterCursor = after,
-            appHistory = history,
-            dictionaryWords = dictionaryEntries.map { it.word }.toSet()
-        )
+        val formatted = when (action) {
+            FormatAction.CONTEXT -> formatter.formatWithContext(
+                input = source,
+                beforeCursor = before,
+                afterCursor = after,
+                appHistory = history,
+                dictionaryWords = dictionaryEntries.map { it.word }.toSet()
+            )
+
+            FormatAction.CASUAL -> formatter.toCasualMessage(source)
+            FormatAction.ENGLISH -> formatter.toEnglishMessage(source)
+        }
         if (formatted.isBlank()) {
             setStatus("整形結果が空でした")
             return
         }
         if (formatted == source) {
-            setStatus("文面整形: 変更なし")
+            setStatus(
+                when (action) {
+                    FormatAction.CONTEXT -> "文面整形: 変更なし"
+                    FormatAction.CASUAL -> "話し言葉整形: 変更なし"
+                    FormatAction.ENGLISH -> "英語変換: 変更なし"
+                }
+            )
             return
         }
 
@@ -1037,7 +1083,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         memory.appendHistory(formatted)
         memory.addRecentPhrase(formatted)
         refreshSuggestions()
-        setStatus("文面を整形しました")
+        setStatus(
+            when (action) {
+                FormatAction.CONTEXT -> "文面を整形しました"
+                FormatAction.CASUAL -> "送信用の話し言葉に整えました"
+                FormatAction.ENGLISH -> "英語に変換しました（ローカル）"
+            }
+        )
     }
 
     private fun handleBackspace() {
@@ -1852,6 +1904,18 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         KANA,
         ALPHA,
         NUMERIC
+    }
+
+    private enum class FormatAction(val id: Int) {
+        CONTEXT(1),
+        CASUAL(2),
+        ENGLISH(3);
+
+        companion object {
+            fun fromId(id: Int): FormatAction? {
+                return values().firstOrNull { it.id == id }
+            }
+        }
     }
 
     private enum class AddWordField {

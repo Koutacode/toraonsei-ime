@@ -110,8 +110,82 @@ class LocalFormatter {
         }
     }
 
+    fun toEnglishMessage(input: String): String {
+        val cleaned = normalize(removeFillers(input))
+        if (cleaned.isBlank()) return ""
+
+        return try {
+            val blocks = splitTopicBlocks(cleaned).ifEmpty { listOf(cleaned) }
+            val translatedBlocks = blocks.mapNotNull { block ->
+                val units = splitSegments(block).ifEmpty { listOf(block) }
+                val translatedUnits = units.mapNotNull { unit ->
+                    val translated = translateUnitToEnglish(unit)
+                    translated.takeIf { it.isNotBlank() }
+                }
+                if (translatedUnits.isEmpty()) null else translatedUnits.joinToString(" ")
+            }
+
+            val output = translatedBlocks.joinToString("\n")
+            normalizeEnglish(output)
+        } catch (_: Exception) {
+            fallbackEnglish(cleaned)
+        }
+    }
+
     private fun fallbackCasual(text: String): String {
         return text.replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun fallbackEnglish(text: String): String {
+        val rough = text
+            .replace("、", ", ")
+            .replace("。", ". ")
+            .replace("？", "? ")
+            .replace("！", "! ")
+        return normalizeEnglish(rough)
+    }
+
+    private fun translateUnitToEnglish(text: String): String {
+        var out = normalize(text)
+        if (out.isBlank()) return ""
+
+        phraseTranslations.forEach { (jp, en) ->
+            out = out.replace(jp, en)
+        }
+        wordTranslations.forEach { (jp, en) ->
+            out = out.replace(jp, en)
+        }
+
+        out = out
+            .replace("、", ", ")
+            .replace("。", ". ")
+            .replace("？", "? ")
+            .replace("！", "! ")
+            .replace("です", "")
+            .replace("ます", "")
+            .replace("でした", "")
+            .replace("でしたら", " if")
+            .replace("だよ", "")
+            .replace("だね", "")
+            .replace("かな", "?")
+
+        return normalizeEnglish(out)
+    }
+
+    private fun normalizeEnglish(text: String): String {
+        var out = text
+            .replace(Regex("\\s+"), " ")
+            .replace(Regex("\\s+([,.!?])"), "$1")
+            .replace(Regex("([,.!?])([A-Za-z])"), "$1 $2")
+            .trim()
+
+        if (out.isEmpty()) return out
+        out = out.replace(" .", ".").replace(" ,", ",")
+        val first = out.first()
+        if (first in 'a'..'z') {
+            out = first.uppercaseChar() + out.substring(1)
+        }
+        return out
     }
 
     private fun toPoliteTone(text: String): String {
@@ -212,5 +286,46 @@ class LocalFormatter {
         val questionRegex = Regex("(どう|いつ|どこ|何|なに|ですか|ますか|かな|\\?)")
         val emphasisRegex = Regex("(ありがとう|了解|助かる|お願いします|よろしく)")
         val politeRegex = Regex("(です|ます|ください|お願|失礼|でしょう)")
+        val phraseTranslations = listOf(
+            "お願いします" to "please",
+            "よろしくお願いします" to "thank you in advance",
+            "ありがとうございます" to "thank you",
+            "ありがとう" to "thanks",
+            "了解です" to "got it",
+            "了解" to "got it",
+            "大丈夫です" to "it's okay",
+            "大丈夫" to "okay",
+            "確認お願いします" to "please check",
+            "確認して" to "please check",
+            "あとで連絡する" to "I will contact you later",
+            "今向かってる" to "I'm on my way",
+            "今向かっています" to "I'm on my way",
+            "遅れます" to "I'll be late",
+            "ごめん" to "sorry",
+            "すみません" to "sorry"
+        )
+        val wordTranslations = listOf(
+            "今日" to "today",
+            "明日" to "tomorrow",
+            "昨日" to "yesterday",
+            "時間" to "time",
+            "予定" to "schedule",
+            "会議" to "meeting",
+            "資料" to "document",
+            "電話" to "call",
+            "連絡" to "contact",
+            "確認" to "check",
+            "対応" to "handle",
+            "修正" to "fix",
+            "更新" to "update",
+            "入力" to "input",
+            "音声" to "voice",
+            "変換" to "convert",
+            "文面整形" to "message formatting",
+            "日本語" to "Japanese",
+            "英語" to "English",
+            "今" to "now",
+            "あとで" to "later"
+        )
     }
 }
