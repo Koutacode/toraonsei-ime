@@ -236,9 +236,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="5dp"
-                android:background="#1E293B"
+                android:background="#0B1220"
                 android:padding="8dp"
-                android:text="キーを押したまま動かすと、上/右/下/左の文字候補を表示"
+                android:text="押したまま: 左=い / 上=う / 右=え / 下=お"
                 android:textColor="#F8FAFC"
                 android:textSize="16sp" />
 
@@ -246,36 +246,36 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="6dp"
-                android:text="日本語12キー配列: 左=い段 / 上=う段 / 右=え段 / 下=お段"
+                android:text="12キー: 左=い / 上=う / 右=え / 下=お"
                 android:textColor="#CBD5E1"
                 android:textSize="16sp" />
 
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F1" android:text="↑う\n←い あ え→\n↓お" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F2" android:text="↑く\n←き か け→\n↓こ" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F3" android:text="↑す\n←し さ せ→\n↓そ" android:textAllCaps="false" android:textSize="17sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F1" android:text=" う\nい あ え\n お" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F2" android:text=" く\nき か け\n こ" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F3" android:text=" す\nし さ せ\n そ" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F4" android:text="↑つ\n←ち た て→\n↓と" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F5" android:text="↑ぬ\n←に な ね→\n↓の" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F6" android:text="↑ふ\n←ひ は へ→\n↓ほ" android:textAllCaps="false" android:textSize="17sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F4" android:text=" つ\nち た て\n と" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F5" android:text=" ぬ\nに な ね\n の" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F6" android:text=" ふ\nひ は へ\n ほ" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F7" android:text="↑む\n←み ま め→\n↓も" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F8" android:text="↑ゆ\n←（ や ）→\n↓よ" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F9" android:text="↑る\n←り ら れ→\n↓ろ" android:textAllCaps="false" android:textSize="17sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F7" android:text=" む\nみ ま め\n も" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F8" android:text=" ゆ\n（ や ）\n よ" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F9" android:text=" る\nり ら れ\n ろ" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="F0" android:text="↑ん\n←を わ ー→\n↓〜" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:gravity="center" android:singleLine="false" android:tag="FS" android:text="↑？\n←。 、 ！→\n↓…" android:textAllCaps="false" android:textSize="17sp" />
-                <Button android:layout_width="0dp" android:layout_height="84dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="。" android:text="。" android:textAllCaps="false" android:textSize="30sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="F0" android:text=" ん\nを わ ー\n 〜" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:gravity="center" android:singleLine="false" android:tag="FS" android:text=" ？\n。 、 ！\n …" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="88dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_key" android:tag="。" android:text="。" android:textAllCaps="false" android:textColor="#0F172A" android:textSize="32sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="DAKUTEN" android:text="゛" android:textAllCaps="false" android:textSize="20sp" />
-                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="HANDAKUTEN" android:text="゜" android:textAllCaps="false" android:textSize="20sp" />
-                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="SMALL" android:text="小" android:textAllCaps="false" android:textSize="20sp" />
-                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="2" android:tag="SPACE" android:text="空白" android:textAllCaps="false" android:textSize="20sp" />
-                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="70dp" android:layout_weight="1" android:background="@drawable/bg_flick_action_key" android:tag="DAKUTEN" android:text="゛" android:textAllCaps="false" android:textColor="#F8FAFC" android:textSize="21sp" />
+                <Button android:layout_width="0dp" android:layout_height="70dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_action_key" android:tag="HANDAKUTEN" android:text="゜" android:textAllCaps="false" android:textColor="#F8FAFC" android:textSize="21sp" />
+                <Button android:layout_width="0dp" android:layout_height="70dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_action_key" android:tag="SMALL" android:text="小" android:textAllCaps="false" android:textColor="#F8FAFC" android:textSize="21sp" />
+                <Button android:layout_width="0dp" android:layout_height="70dp" android:layout_marginStart="6dp" android:layout_weight="2" android:background="@drawable/bg_flick_action_key" android:tag="SPACE" android:text="空白" android:textAllCaps="false" android:textColor="#F8FAFC" android:textSize="21sp" />
+                <Button android:layout_width="0dp" android:layout_height="70dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_flick_action_key" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textColor="#F8FAFC" android:textSize="21sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
@@ -354,3 +354,5 @@
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
+
+

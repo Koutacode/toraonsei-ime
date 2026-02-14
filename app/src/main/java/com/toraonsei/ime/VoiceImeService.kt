@@ -394,8 +394,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val rowLabel = flickRowLabelMap[tag].orEmpty()
 
         val items = listOf(
-            buildGuideItem("上", table[2], direction == FlickDirection.UP),
             buildGuideItem("左", table[1], direction == FlickDirection.LEFT),
+            buildGuideItem("上", table[2], direction == FlickDirection.UP),
             buildGuideItem("中", table[0], direction == FlickDirection.CENTER),
             buildGuideItem("右", table[3], direction == FlickDirection.RIGHT),
             buildGuideItem("下", table[4], direction == FlickDirection.DOWN)
@@ -813,7 +813,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private companion object {
-        const val defaultFlickGuideText = "キーを押したまま動かすと、上/右/下/左の文字候補を表示"
+        const val defaultFlickGuideText = "押したまま: 左=い / 上=う / 右=え / 下=お"
 
         val flickMap = mapOf(
             "F1" to arrayOf("あ", "い", "う", "え", "お"),
