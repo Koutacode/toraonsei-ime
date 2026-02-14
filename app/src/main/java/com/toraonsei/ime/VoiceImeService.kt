@@ -2,8 +2,10 @@ package com.toraonsei.ime
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -16,10 +18,13 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -28,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
 import com.toraonsei.R
+import com.toraonsei.dict.LocalKanaKanjiDictionary
 import com.toraonsei.dict.UserDictionaryRepository
 import com.toraonsei.format.LocalFormatter
 import com.toraonsei.model.DictionaryEntry
@@ -43,12 +49,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var repository: UserDictionaryRepository
+    private lateinit var localDictionary: LocalKanaKanjiDictionary
     private lateinit var speechController: SpeechController
 
     private val suggestionEngine = SuggestionEngine()
@@ -59,6 +67,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var isRecognizerActive = false
     private var restartListeningJob: Job? = null
     private var inputMode: InputMode = InputMode.KANA
+    private var alphaUppercase = false
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
@@ -72,12 +81,17 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var conversionState: ConversionState? = null
 
     private var rootView: View? = null
+    private var keyboardRoot: ViewGroup? = null
+    private var candidateScroll: HorizontalScrollView? = null
+    private var recordRow: LinearLayout? = null
+    private var manualInputPanel: LinearLayout? = null
     private var candidateContainer: LinearLayout? = null
     private var addWordButton: Button? = null
     private var micButton: Button? = null
     private var formatContextButton: Button? = null
     private var statusText: TextView? = null
     private var inputModeButton: Button? = null
+    private var smallActionButton: Button? = null
     private var keyBackspaceButton: Button? = null
     private var flickGuideText: TextView? = null
     private var tenKeyPanel: LinearLayout? = null
@@ -87,16 +101,32 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var addReadingEdit: EditText? = null
     private var saveWordButton: Button? = null
     private var cancelWordButton: Button? = null
+    private var addWordTargetField: AddWordField = AddWordField.READING
+
+    private var candidateChipMinWidthPx: Int = 0
+    private var candidateChipHeightPx: Int = 0
+    private var candidateChipTextSizeSp: Float = 13f
+    private var flickKeyTextSizeSp: Float = 12.5f
+    private var flickKeyPaddingPx: Int = 0
 
     override fun onCreate() {
         super.onCreate()
         repository = UserDictionaryRepository(this)
+        localDictionary = LocalKanaKanjiDictionary(this)
         speechController = SpeechController(this, this)
 
         serviceScope.launch {
             repository.entriesFlow.collectLatest { entries ->
                 dictionaryEntries = entries
                 refreshSuggestions()
+            }
+        }
+
+        serviceScope.launch {
+            try {
+                localDictionary.loadIfNeeded()
+            } catch (_: Exception) {
+                // 辞書アセットの読み込みに失敗してもIME入力自体は継続する。
             }
         }
     }
@@ -107,8 +137,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         bindViews(view)
         setupListeners()
         applyManualKeyboardMode()
+        applyImeSizingPolicy()
         updateMicState()
         refreshSuggestions()
+        view.post {
+            applyImeSizingPolicy()
+            refreshSuggestions()
+        }
         return view
     }
 
@@ -119,8 +154,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        applyImeSizingPolicy()
         setStatus("待機中")
         refreshSuggestions()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        rootView?.post { applyImeSizingPolicy() }
     }
 
     override fun onUpdateSelection(
@@ -168,8 +209,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
-    override fun onFinal(text: String) {
-        val corrected = applyDictionaryCorrections(text.trim())
+    override fun onFinal(text: String, alternatives: List<String>) {
+        val corrected = selectBestRecognitionCandidate(
+            alternatives = alternatives.ifEmpty { listOf(text) }
+        )
         if (corrected.isBlank()) {
             setStatus("認識結果が空でした")
             return
@@ -201,6 +244,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun bindViews(view: View) {
+        keyboardRoot = view.findViewById(R.id.keyboardRoot)
+        candidateScroll = view.findViewById(R.id.candidateScroll)
+        recordRow = view.findViewById(R.id.recordRow)
+        manualInputPanel = view.findViewById(R.id.manualInputPanel)
         candidateContainer = view.findViewById(R.id.candidateContainer)
         addWordButton = view.findViewById(R.id.addWordButton)
         micButton = view.findViewById(R.id.micButton)
@@ -247,6 +294,21 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             saveWordButton?.isEnabled = !editable.isNullOrBlank()
         }
 
+        addWordEdit?.showSoftInputOnFocus = false
+        addReadingEdit?.showSoftInputOnFocus = false
+        addWordEdit?.setOnClickListener { focusAddWordField(AddWordField.WORD) }
+        addReadingEdit?.setOnClickListener { focusAddWordField(AddWordField.READING) }
+        addWordEdit?.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                addWordTargetField = AddWordField.WORD
+            }
+        }
+        addReadingEdit?.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                addWordTargetField = AddWordField.READING
+            }
+        }
+
         saveWordButton?.setOnClickListener {
             val word = addWordEdit?.text?.toString().orEmpty().trim()
             val reading = addReadingEdit?.text?.toString().orEmpty().trim()
@@ -279,6 +341,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun bindTaggedKeyButtons(root: View) {
         if (root is Button) {
             val tag = root.tag as? String
+            if (tag == "SMALL") {
+                smallActionButton = root
+            }
             if (!tag.isNullOrBlank() && !tag.startsWith("F")) {
                 root.setOnClickListener { handleTaggedKeyInput(tag) }
             }
@@ -365,8 +430,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             if (!tag.isNullOrBlank() && tag.startsWith("F")) {
                 root.includeFontPadding = false
                 root.maxLines = 3
-                root.textSize = if (resources.configuration.smallestScreenWidthDp >= 600) 18f else 12.5f
-                root.setPadding(dp(2), dp(2), dp(2), dp(2))
+                root.textSize = flickKeyTextSizeSp
+                val pad = flickKeyPaddingPx.takeIf { it > 0 } ?: dp(2)
+                root.setPadding(pad, pad, pad, pad)
                 root.text = buildFlickKeyLabel(tag)
             }
             return
@@ -416,14 +482,30 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "ENTER" -> commitTextDirect("\n")
             "BACKSPACE" -> handleBackspace()
             "CONVERT" -> convertReadingToCandidate()
-            "CURSOR_LEFT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
-            "CURSOR_RIGHT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
+            "CURSOR_LEFT" -> {
+                if (!moveCursorInAddWordEditor(-1)) {
+                    sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
+                }
+            }
+            "CURSOR_RIGHT" -> {
+                if (!moveCursorInAddWordEditor(1)) {
+                    sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
+                }
+            }
             "MODE_CYCLE" -> cycleInputMode()
             "LANG_PICKER" -> showInputMethodPickerSafely()
             "DAKUTEN" -> applyDakuten()
             "HANDAKUTEN" -> applyHandakuten()
-            "SMALL" -> applySmallKana()
+            "SMALL" -> handleSmallAction()
             else -> commitTextDirect(tag)
+        }
+    }
+
+    private fun handleSmallAction() {
+        when (inputMode) {
+            InputMode.KANA -> applySmallKana()
+            InputMode.ALPHA -> toggleAlphaCase()
+            InputMode.NUMERIC -> commitTextDirect("…")
         }
     }
 
@@ -464,6 +546,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun replaceToggleCommittedText(previous: String, next: String): Boolean {
+        val editor = currentAddWordEditor()
+        if (editor != null) {
+            return replaceToggleTextInEditor(editor, previous, next)
+        }
         val ic = currentInputConnection ?: return false
         if (previous.isBlank()) return false
 
@@ -476,6 +562,23 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         ic.commitText(next, 1)
         rememberCommittedText(next)
         refreshSuggestions()
+        return true
+    }
+
+    private fun replaceToggleTextInEditor(editor: EditText, previous: String, next: String): Boolean {
+        if (previous.isBlank()) return false
+        val editable = editor.text ?: return false
+        val cursor = editor.selectionStart.takeIf { it >= 0 } ?: editable.length
+        if (cursor < previous.length) return false
+        val start = cursor - previous.length
+        val before = editable.subSequence(start, cursor).toString()
+        if (before != previous) return false
+        editable.replace(start, cursor, next)
+        val nextCursor = (start + next.length).coerceAtMost(editable.length)
+        editor.setSelection(nextCursor)
+        if (editor === addReadingEdit) {
+            saveWordButton?.isEnabled = editable.isNotBlank()
+        }
         return true
     }
 
@@ -493,6 +596,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             InputMode.ALPHA -> InputMode.NUMERIC
             InputMode.NUMERIC -> InputMode.KANA
         }
+        if (inputMode != InputMode.ALPHA) {
+            alphaUppercase = false
+        }
         clearToggleTapState()
         clearConversionState()
         updateModeUi()
@@ -507,18 +613,35 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         )
     }
 
+    private fun toggleAlphaCase() {
+        if (inputMode != InputMode.ALPHA) return
+        alphaUppercase = !alphaUppercase
+        clearToggleTapState()
+        clearConversionState()
+        updateModeUi()
+        rootView?.let { styleFlickTenKeys(it) }
+        setStatus(
+            if (alphaUppercase) "英字: 大文字" else "英字: 小文字"
+        )
+    }
+
     private fun updateModeUi() {
         inputModeButton?.text = when (inputMode) {
             InputMode.KANA -> "あ/A/1"
             InputMode.ALPHA -> "A/1/あ"
             InputMode.NUMERIC -> "1/あ/A"
         }
+        smallActionButton?.text = when (inputMode) {
+            InputMode.KANA -> "小"
+            InputMode.ALPHA -> "A/a"
+            InputMode.NUMERIC -> "…"
+        }
     }
 
     private fun activeFlickMap(): Map<String, Array<String>> {
         return when (inputMode) {
             InputMode.KANA -> kanaFlickMap
-            InputMode.ALPHA -> alphaFlickMap
+            InputMode.ALPHA -> buildAlphaFlickMap()
             InputMode.NUMERIC -> numericFlickMap
         }
     }
@@ -534,8 +657,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun defaultGuideTextForMode(): String {
         return when (inputMode) {
             InputMode.KANA -> "タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
-            InputMode.ALPHA -> "タップ連打: 先頭→左→上→右→下 / 英字入力"
-            InputMode.NUMERIC -> "タップ連打: 先頭→左→上→右→下 / 数字・記号入力"
+            InputMode.ALPHA -> "英字配列: abc/def... / フリック: 左→上→右→下 / A/aで大文字切替"
+            InputMode.NUMERIC -> "数字配列: 1-9/0 / フリックで記号入力 / …キーで省略記号"
         }
     }
 
@@ -565,6 +688,12 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun buildFlickKeyLabel(tag: String): CharSequence {
+        if (inputMode == InputMode.ALPHA) {
+            return buildAlphaCompactKeyLabel(tag)
+        }
+        if (inputMode == InputMode.NUMERIC) {
+            return buildNumericCompactKeyLabel(tag)
+        }
         val table = activeFlickMap()[tag] ?: return ""
         val parts = buildFlickLabelParts(table)
         return SpannableString(parts.text).apply {
@@ -576,6 +705,18 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             applySpan(StyleSpan(Typeface.BOLD), parts.center)
             applySpan(ForegroundColorSpan(0xFFF8FAFC.toInt()), parts.center)
         }
+    }
+
+    private fun buildAlphaCompactKeyLabel(tag: String): String {
+        val base = alphaCompactLabelMap[tag] ?: return ""
+        if (!alphaUppercase) return base
+        return base.map { ch ->
+            if (ch in 'a'..'z') ch.uppercaseChar() else ch
+        }.joinToString("")
+    }
+
+    private fun buildNumericCompactKeyLabel(tag: String): String {
+        return numericCompactLabelMap[tag] ?: ""
     }
 
     private fun buildFlickPopupLabel(tag: String, direction: FlickDirection): CharSequence {
@@ -794,7 +935,47 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun startListeningSession() {
-        speechController.startListening()
+        speechController.startListening(buildSpeechBiasHints())
+    }
+
+    private fun buildSpeechBiasHints(): List<String> {
+        val hints = LinkedHashSet<String>()
+
+        dictionaryEntries
+            .sortedByDescending { it.priority }
+            .take(120)
+            .forEach { entry ->
+                val word = entry.word.trim()
+                val reading = entry.readingKana.trim()
+                if (word.isNotBlank()) hints.add(word)
+                if (reading.isNotBlank()) hints.add(reading)
+            }
+
+        val before = getCurrentBeforeCursor()
+        val after = getCurrentAfterCursor()
+        extractJapaneseTokens(before).forEach { hints.add(it) }
+        extractJapaneseTokens(after).forEach { hints.add(it) }
+        val readingTokens = extractJapaneseTokens(before + " " + after)
+            .map { normalizeReadingKana(it) }
+            .distinct()
+        readingTokens.forEach { reading ->
+            localDictionary.candidatesFor(reading, limit = 2).forEach { candidate ->
+                hints.add(candidate)
+            }
+        }
+
+        val pkg = currentPackageName()
+        appMemory[pkg]
+            ?.toRecentPhrases()
+            ?.sortedByDescending { it.frequency }
+            ?.take(20)
+            ?.forEach { phrase ->
+                if (phrase.text.isNotBlank()) {
+                    hints.add(phrase.text)
+                }
+            }
+
+        return hints.take(80)
     }
 
     private fun updateMicState() {
@@ -862,6 +1043,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun handleBackspace() {
         clearToggleTapState()
         clearConversionState()
+        if (deleteFromAddWordEditor()) {
+            return
+        }
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
@@ -875,6 +1059,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun commitTextDirect(text: String) {
         if (text.isEmpty()) return
         clearConversionState()
+        if (commitTextToAddWordEditor(text)) {
+            return
+        }
         currentInputConnection?.commitText(text, 1)
         rememberCommittedText(text)
         refreshSuggestions()
@@ -898,14 +1085,90 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         addWordEdit?.setText(seed)
         addReadingEdit?.setText("")
         addWordPanel?.isVisible = true
-        addReadingEdit?.requestFocus()
+        focusAddWordField(AddWordField.READING)
         saveWordButton?.isEnabled = false
+        setStatus("読み(かな)を入力してください")
     }
 
     private fun hideAddWordPanel() {
         addWordPanel?.isVisible = false
         addWordEdit?.clearFocus()
         addReadingEdit?.clearFocus()
+        addWordTargetField = AddWordField.READING
+    }
+
+    private fun focusAddWordField(target: AddWordField) {
+        addWordTargetField = target
+        val editor = when (target) {
+            AddWordField.WORD -> addWordEdit
+            AddWordField.READING -> addReadingEdit
+        } ?: return
+
+        editor.isFocusable = true
+        editor.isFocusableInTouchMode = true
+        editor.requestFocus()
+        val text = editor.text
+        editor.setSelection(text?.length ?: 0)
+    }
+
+    private fun currentAddWordEditor(): EditText? {
+        if (addWordPanel?.isVisible != true) return null
+        val reading = addReadingEdit
+        val word = addWordEdit
+        return when {
+            reading?.hasFocus() == true -> reading
+            word?.hasFocus() == true -> word
+            addWordTargetField == AddWordField.WORD -> word
+            else -> reading
+        }
+    }
+
+    private fun commitTextToAddWordEditor(text: String): Boolean {
+        val editor = currentAddWordEditor() ?: return false
+        val editable = editor.text ?: return false
+        val selectionStart = editor.selectionStart.takeIf { it >= 0 } ?: editable.length
+        val selectionEnd = editor.selectionEnd.takeIf { it >= 0 } ?: editable.length
+        val start = minOf(selectionStart, selectionEnd)
+        val end = maxOf(selectionStart, selectionEnd)
+        editable.replace(start, end, text)
+        val nextCursor = (start + text.length).coerceAtMost(editable.length)
+        editor.setSelection(nextCursor)
+        if (editor === addReadingEdit) {
+            saveWordButton?.isEnabled = editable.isNotBlank()
+        }
+        return true
+    }
+
+    private fun deleteFromAddWordEditor(): Boolean {
+        val editor = currentAddWordEditor() ?: return false
+        val editable = editor.text ?: return false
+        if (editable.isEmpty()) return true
+
+        val selectionStart = editor.selectionStart.takeIf { it >= 0 } ?: editable.length
+        val selectionEnd = editor.selectionEnd.takeIf { it >= 0 } ?: editable.length
+        val start = minOf(selectionStart, selectionEnd)
+        val end = maxOf(selectionStart, selectionEnd)
+
+        if (start != end) {
+            editable.delete(start, end)
+            editor.setSelection(start.coerceAtMost(editable.length))
+        } else if (start > 0) {
+            editable.delete(start - 1, start)
+            editor.setSelection((start - 1).coerceAtMost(editable.length))
+        }
+        if (editor === addReadingEdit) {
+            saveWordButton?.isEnabled = editable.isNotBlank()
+        }
+        return true
+    }
+
+    private fun moveCursorInAddWordEditor(delta: Int): Boolean {
+        val editor = currentAddWordEditor() ?: return false
+        val textLength = editor.text?.length ?: 0
+        val selection = editor.selectionStart.takeIf { it >= 0 } ?: textLength
+        val next = (selection + delta).coerceIn(0, textLength)
+        editor.setSelection(next)
+        return true
     }
 
     private fun refreshSuggestions() {
@@ -927,13 +1190,16 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun renderCandidates(suggestions: List<String>) {
         val container = candidateContainer ?: return
         container.removeAllViews()
+        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(40)
+        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(84)
+        val chipTextSize = candidateChipTextSizeSp
 
         suggestions.take(5).forEach { suggestion ->
             val button = Button(this).apply {
                 text = suggestion
-                textSize = 13f
+                textSize = chipTextSize
                 isAllCaps = false
-                minWidth = dp(84)
+                minWidth = chipMinWidth
                 setPadding(dp(10), dp(0), dp(10), dp(0))
                 setBackgroundResource(R.drawable.bg_chip)
                 setTextColor(0xFFFFFFFF.toInt())
@@ -945,7 +1211,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(40)
+                chipHeight
             )
             params.marginEnd = dp(6)
             container.addView(button, params)
@@ -964,14 +1230,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun getCurrentBeforeCursor(): String {
         return currentInputConnection
-            ?.getTextBeforeCursor(200, 0)
+            ?.getTextBeforeCursor(contextWindowSize, 0)
             ?.toString()
             .orEmpty()
     }
 
     private fun getCurrentAfterCursor(): String {
         return currentInputConnection
-            ?.getTextAfterCursor(50, 0)
+            ?.getTextAfterCursor(contextWindowSize, 0)
             ?.toString()
             .orEmpty()
     }
@@ -986,6 +1252,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun convertReadingToCandidate() {
+        if (currentAddWordEditor() != null) {
+            setStatus("単語追加中は入力欄を編集してください")
+            return
+        }
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(60, 0)?.toString().orEmpty()
         val now = System.currentTimeMillis()
@@ -1012,9 +1282,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             return
         }
 
-        val reading = Regex("([ぁ-ゖー]+)$").find(before)?.groupValues?.get(1).orEmpty()
+        val sourceReading = Regex("([ぁ-ゖァ-ヺー]+)$").find(before)?.groupValues?.get(1).orEmpty()
+        val reading = normalizeReadingKana(sourceReading)
         if (reading.isBlank()) {
-            setStatus("ひらがなを入力してから変換してください")
+            setStatus("かなを入力してから変換してください")
             return
         }
 
@@ -1025,7 +1296,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         val first = candidates.first()
-        ic.deleteSurroundingText(reading.length, 0)
+        ic.deleteSurroundingText(sourceReading.length, 0)
         ic.commitText(first, 1)
         rememberCommittedText(first)
         conversionState = ConversionState(
@@ -1044,7 +1315,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun buildConversionCandidates(reading: String): List<String> {
         val dictionaryCandidates = dictionaryEntries
             .asSequence()
-            .filter { it.readingKana == reading }
+            .mapNotNull { entry ->
+                val normalizedReading = normalizeReadingKana(entry.readingKana)
+                if (normalizedReading == reading) entry else null
+            }
             .sortedWith(
                 compareByDescending<DictionaryEntry> { it.priority }
                     .thenByDescending { it.createdAt }
@@ -1053,14 +1327,133 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             .filter { it.isNotBlank() }
             .toList()
 
-        val builtIn = simpleKanaKanjiMap[reading].orEmpty()
+        val builtInExact = builtInConversionCandidates[reading].orEmpty()
+        val localExact = localDictionary.candidatesFor(reading, limit = 10)
+        val rules = buildConversionRules()
+        val greedy = applyLongestRuleConversion(reading, rules)
+        val katakana = hiraganaToKatakana(reading)
+
         val merged = linkedSetOf<String>()
         dictionaryCandidates.forEach { merged.add(it) }
-        builtIn.forEach { merged.add(it) }
+        builtInExact.forEach { merged.add(it) }
+        localExact.forEach { merged.add(it) }
+        if (greedy.replacedCount > 0 && greedy.output.isNotBlank()) {
+            merged.add(greedy.output)
+        }
+        if (katakana.isNotBlank() && katakana != reading) {
+            merged.add(katakana)
+        }
         if (!merged.contains(reading)) {
             merged.add(reading)
         }
-        return merged.take(8)
+        return merged.take(12)
+    }
+
+    private fun buildConversionRules(): List<ConversionRule> {
+        val result = mutableListOf<ConversionRule>()
+
+        dictionaryEntries.forEach { entry ->
+            val from = normalizeReadingKana(entry.readingKana.trim())
+            val to = entry.word.trim()
+            if (from.isBlank() || to.isBlank()) return@forEach
+            val score = 900 + entry.priority * 25
+            result.add(
+                ConversionRule(
+                    reading = from,
+                    output = to,
+                    score = score
+                )
+            )
+        }
+
+        builtInConversionCandidates.forEach { (from, outputs) ->
+            if (outputs.isEmpty()) return@forEach
+            val main = outputs.first().trim()
+            if (main.isBlank()) return@forEach
+            result.add(
+                ConversionRule(
+                    reading = from,
+                    output = main,
+                    score = 300 + from.length * 5
+                )
+            )
+        }
+
+        return result
+            .sortedWith(
+                compareByDescending<ConversionRule> { it.reading.length }
+                    .thenByDescending { it.score }
+            )
+    }
+
+    private fun applyLongestRuleConversion(input: String, rules: List<ConversionRule>): ConversionResult {
+        if (input.isBlank() || rules.isEmpty()) {
+            return ConversionResult(output = input, replacedCount = 0)
+        }
+
+        val out = StringBuilder()
+        var index = 0
+        var replacedCount = 0
+
+        while (index < input.length) {
+            val matched = rules.firstOrNull { rule ->
+                index + rule.reading.length <= input.length &&
+                    input.regionMatches(index, rule.reading, 0, rule.reading.length)
+            }
+
+            if (matched != null) {
+                out.append(matched.output)
+                if (matched.output != matched.reading) {
+                    replacedCount += 1
+                }
+                index += matched.reading.length
+            } else {
+                out.append(input[index])
+                index += 1
+            }
+        }
+
+        return ConversionResult(
+            output = out.toString(),
+            replacedCount = replacedCount
+        )
+    }
+
+    private fun normalizeReadingKana(input: String): String {
+        if (input.isBlank()) return ""
+        val out = StringBuilder(input.length)
+        input.forEach { char ->
+            when {
+                char in 'ァ'..'ヶ' -> out.append((char.code - 0x60).toChar())
+                char == 'ヴ' -> out.append('ゔ')
+                else -> out.append(char)
+            }
+        }
+        return out.toString()
+    }
+
+    private fun hiraganaToKatakana(input: String): String {
+        if (input.isBlank()) return ""
+        val out = StringBuilder(input.length)
+        input.forEach { char ->
+            if (char in 'ぁ'..'ゖ') {
+                out.append((char.code + 0x60).toChar())
+            } else {
+                out.append(char)
+            }
+        }
+        return out.toString()
+    }
+
+    private fun buildAlphaFlickMap(): Map<String, Array<String>> {
+        if (!alphaUppercase) return alphaBaseFlickMap
+        return alphaBaseFlickMap.mapValues { (_, values) ->
+            Array(values.size) { index ->
+                values[index].map { ch ->
+                    if (ch in 'a'..'z') ch.uppercaseChar() else ch
+                }.joinToString("")
+            }
+        }
     }
 
     private fun rememberCommittedText(text: String) {
@@ -1072,6 +1465,87 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         if (text.length >= 2 && !text.contains('\n')) {
             memory.addRecentPhrase(text)
         }
+    }
+
+    private fun selectBestRecognitionCandidate(alternatives: List<String>): String {
+        if (alternatives.isEmpty()) return ""
+
+        val before = getCurrentBeforeCursor()
+        val after = getCurrentAfterCursor()
+        val pkg = currentPackageName()
+        val history = appMemory[pkg]?.history?.toString().orEmpty()
+        val contextTokens = (extractJapaneseTokens(before) + extractJapaneseTokens(after) + extractJapaneseTokens(history))
+            .takeLast(24)
+            .toSet()
+
+        val scored = alternatives
+            .map { raw ->
+                val corrected = applyDictionaryCorrections(raw.trim())
+                val score = scoreRecognitionCandidate(corrected, contextTokens)
+                RecognizedCandidate(
+                    original = raw,
+                    corrected = corrected,
+                    score = score
+                )
+            }
+            .sortedByDescending { it.score }
+
+        return scored.firstOrNull()?.corrected.orEmpty()
+    }
+
+    private fun scoreRecognitionCandidate(candidate: String, contextTokens: Set<String>): Int {
+        if (candidate.isBlank()) return Int.MIN_VALUE
+        var score = 0
+
+        score += candidate.length.coerceAtMost(40)
+
+        val dictionaryWordHits = dictionaryEntries.count { entry ->
+            val word = entry.word.trim()
+            word.isNotBlank() && candidate.contains(word)
+        }
+        score += dictionaryWordHits * 45
+
+        val readingHits = dictionaryEntries.count { entry ->
+            val reading = entry.readingKana.trim()
+            reading.isNotBlank() && normalizeReadingKana(candidate).contains(normalizeReadingKana(reading))
+        }
+        score += readingHits * 20
+
+        contextTokens.forEach { token ->
+            if (token.length >= 2 && candidate.contains(token)) {
+                score += 24
+            }
+        }
+
+        contextTokens
+            .asSequence()
+            .map { normalizeReadingKana(it) }
+            .distinct()
+            .forEach { reading ->
+                localDictionary.candidatesFor(reading, limit = 2).forEach { localWord ->
+                    if (localWord.length >= 2 && candidate.contains(localWord)) {
+                        score += 18
+                    }
+                }
+            }
+
+        if (candidate.any { it in '一'..'龯' }) {
+            score += 22
+        }
+        if (candidate.any { it in 'ァ'..'ン' }) {
+            score += 10
+        }
+
+        return score
+    }
+
+    private fun extractJapaneseTokens(text: String): List<String> {
+        if (text.isBlank()) return emptyList()
+        return tokenRegex.findAll(text)
+            .map { it.value }
+            .filter { it.length in 2..16 }
+            .take(32)
+            .toList()
     }
 
     private fun applyDictionaryCorrections(input: String): String {
@@ -1141,6 +1615,129 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
+    private fun applyImeSizingPolicy() {
+        val root = rootView ?: return
+        val (windowWidth, windowHeight) = resolveUsableWindowSize()
+        if (windowWidth <= 0 || windowHeight <= 0) return
+
+        val configuration = resources.configuration
+        val sw = configuration.smallestScreenWidthDp
+        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+        val targetImeHeight = (windowHeight * when {
+            sw >= 600 && isLandscape -> 0.42f
+            sw >= 600 -> 0.36f
+            isLandscape -> 0.50f
+            else -> 0.44f
+        }).roundToInt().coerceIn(
+            dp(if (sw >= 600) 320 else 270),
+            dp(if (sw >= 600) 620 else if (isLandscape) 460 else 560)
+        )
+
+        val candidateHeight = (targetImeHeight * 0.105f).roundToInt().coerceIn(
+            dp(if (sw >= 600) 48 else 36),
+            dp(if (sw >= 600) 74 else 56)
+        )
+        val recordButtonHeight = (targetImeHeight * if (sw >= 600) 0.18f else 0.16f).roundToInt().coerceIn(
+            dp(if (sw >= 600) 82 else 62),
+            dp(if (sw >= 600) 130 else 98)
+        )
+        val tenKeyHeight = (targetImeHeight * if (sw >= 600) 0.172f else 0.168f).roundToInt().coerceIn(
+            dp(if (sw >= 600) 84 else 56),
+            dp(if (sw >= 600) 128 else 102)
+        )
+        val horizontalPadding = (targetImeHeight * 0.015f).roundToInt().coerceIn(
+            dp(4),
+            dp(if (sw >= 600) 16 else 10)
+        )
+        val manualPanelPadding = (targetImeHeight * 0.018f).roundToInt().coerceIn(
+            dp(6),
+            dp(if (sw >= 600) 14 else 10)
+        )
+        val guideTextSizeSp = if (sw >= 600) 14f else if (isLandscape) 10.5f else 11f
+        val statusTextSizeSp = if (sw >= 600) 15f else if (isLandscape) 11.5f else 12f
+        val flickTextSizeSp = if (sw >= 600) 18f else if (tenKeyHeight >= dp(84)) 14f else 12.5f
+
+        candidateChipHeightPx = (candidateHeight * 0.88f).roundToInt()
+        candidateChipMinWidthPx = (windowWidth * if (sw >= 600) 0.13f else 0.18f).roundToInt().coerceAtLeast(dp(72))
+        candidateChipTextSizeSp = if (sw >= 600) 15f else if (isLandscape) 12f else 13f
+        flickKeyTextSizeSp = flickTextSizeSp
+        flickKeyPaddingPx = (tenKeyHeight * 0.045f).roundToInt().coerceIn(dp(1), dp(4))
+
+        keyboardRoot?.setPadding(horizontalPadding, horizontalPadding, horizontalPadding, horizontalPadding)
+        updateViewHeight(candidateScroll, candidateHeight)
+        updateViewHeight(addWordButton, (candidateHeight * 0.92f).roundToInt())
+        updateViewHeight(micButton, recordButtonHeight)
+        updateViewHeight(formatContextButton, recordButtonHeight)
+        manualInputPanel?.setPadding(manualPanelPadding, manualPanelPadding, manualPanelPadding, manualPanelPadding)
+        statusText?.textSize = statusTextSizeSp
+        flickGuideText?.textSize = guideTextSizeSp
+
+        resizeTenKeyButtons(root, tenKeyHeight)
+        styleFlickTenKeys(root)
+    }
+
+    private fun resizeTenKeyButtons(root: View, heightPx: Int) {
+        if (root is Button) {
+            val tag = root.tag as? String
+            if (!tag.isNullOrBlank() && isTenKeyTag(tag)) {
+                updateViewHeight(root, heightPx)
+            }
+            return
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                resizeTenKeyButtons(root.getChildAt(i), heightPx)
+            }
+        }
+    }
+
+    private fun isTenKeyTag(tag: String): Boolean {
+        if (tag.startsWith("F")) return true
+        return tag in setOf(
+            "CONVERT",
+            "BACKSPACE",
+            "CURSOR_LEFT",
+            "CURSOR_RIGHT",
+            "MODE_CYCLE",
+            "LANG_PICKER",
+            "SPACE",
+            "ENTER",
+            "SMALL",
+            "DAKUTEN",
+            "HANDAKUTEN"
+        )
+    }
+
+    private fun updateViewHeight(view: View?, targetHeightPx: Int) {
+        val target = view ?: return
+        val params = target.layoutParams ?: return
+        if (params.height == targetHeightPx) return
+        params.height = targetHeightPx
+        target.layoutParams = params
+    }
+
+    private fun resolveUsableWindowSize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val wm = getSystemService(WindowManager::class.java)
+            val metrics = wm?.currentWindowMetrics
+            if (metrics == null) {
+                val dm = resources.displayMetrics
+                return dm.widthPixels to dm.heightPixels
+            }
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            val width = metrics.bounds.width() - insets.left - insets.right
+            val height = metrics.bounds.height() - insets.top - insets.bottom
+            if (width > 0 && height > 0) {
+                return width to height
+            }
+        }
+        val dm = resources.displayMetrics
+        return dm.widthPixels to dm.heightPixels
+    }
+
     private fun dp(value: Int): Int {
         val density = resources.displayMetrics.density
         return (value * density).toInt()
@@ -1177,6 +1774,23 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val index: Int,
         val currentOutput: String,
         val timestampMs: Long
+    )
+
+    private data class ConversionRule(
+        val reading: String,
+        val output: String,
+        val score: Int
+    )
+
+    private data class ConversionResult(
+        val output: String,
+        val replacedCount: Int
+    )
+
+    private data class RecognizedCandidate(
+        val original: String,
+        val corrected: String,
+        val score: Int
     )
 
     private data class PhraseStats(
@@ -1240,9 +1854,16 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         NUMERIC
     }
 
+    private enum class AddWordField {
+        WORD,
+        READING
+    }
+
     private companion object {
         const val toggleTapWindowMs = 850L
         const val convertCycleWindowMs = 2200L
+        const val contextWindowSize = 200
+        val tokenRegex = Regex("[\\p{IsHan}\\p{InHiragana}\\p{InKatakana}A-Za-z0-9]{1,16}")
 
         val kanaFlickMap = mapOf(
             "F1" to arrayOf("あ", "い", "う", "え", "お"),
@@ -1258,32 +1879,32 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "FS" to arrayOf("、", "。", "？", "！", "…")
         )
 
-        val alphaFlickMap = mapOf(
-            "F1" to arrayOf("a", "b", "c", "d", "e"),
-            "F2" to arrayOf("f", "g", "h", "i", "j"),
-            "F3" to arrayOf("k", "l", "m", "n", "o"),
-            "F4" to arrayOf("p", "q", "r", "s", "t"),
-            "F5" to arrayOf("u", "v", "w", "x", "y"),
-            "F6" to arrayOf("z", ".", "@", "_", "-"),
-            "F7" to arrayOf("A", "B", "C", "D", "E"),
-            "F8" to arrayOf("F", "G", "H", "I", "J"),
-            "F9" to arrayOf("K", "L", "M", "N", "O"),
-            "F0" to arrayOf("P", "Q", "R", "S", "T"),
-            "FS" to arrayOf("U", "V", "W", "X", "Z")
+        val alphaBaseFlickMap = mapOf(
+            "F1" to arrayOf("@", "/", ":", "~", "_"),
+            "F2" to arrayOf("a", "b", "c", "2", "A"),
+            "F3" to arrayOf("d", "e", "f", "3", "D"),
+            "F4" to arrayOf("g", "h", "i", "4", "G"),
+            "F5" to arrayOf("j", "k", "l", "5", "J"),
+            "F6" to arrayOf("m", "n", "o", "6", "M"),
+            "F7" to arrayOf("p", "q", "r", "s", "7"),
+            "F8" to arrayOf("t", "u", "v", "8", "T"),
+            "F9" to arrayOf("w", "x", "y", "z", "9"),
+            "F0" to arrayOf("-", "#", "0", "+", "="),
+            "FS" to arrayOf(".", ",", "?", "!", "'")
         )
 
         val numericFlickMap = mapOf(
-            "F1" to arrayOf("1", "2", "3", "4", "5"),
-            "F2" to arrayOf("6", "7", "8", "9", "0"),
-            "F3" to arrayOf(".", ",", "?", "!", "…"),
-            "F4" to arrayOf("-", "/", "(", ")", ":"),
-            "F5" to arrayOf("@", "#", "%", "&", "*"),
-            "F6" to arrayOf("+", "=", "_", ";", "\""),
-            "F7" to arrayOf("[", "]", "{", "}", "\\"),
-            "F8" to arrayOf("<", ">", "^", "|", "~"),
-            "F9" to arrayOf("$", "¥", "€", "£", "`"),
-            "F0" to arrayOf("、", "。", "？", "！", "ー"),
-            "FS" to arrayOf("'", "\"", ":", ";", "/")
+            "F1" to arrayOf("1", "/", "@", ":", "~"),
+            "F2" to arrayOf("2", "!", "%", "\"", "'"),
+            "F3" to arrayOf("3", "+", "*", "=", "^"),
+            "F4" to arrayOf("4", "*", "&", ";", ":"),
+            "F5" to arrayOf("5", "¥", "$", "€", "￦"),
+            "F6" to arrayOf("6", "<", "^", ">", "="),
+            "F7" to arrayOf("7", "#", "|", "〒", "※"),
+            "F8" to arrayOf("8", "[", "]", "(", ")"),
+            "F9" to arrayOf("9", "☆", "○", "♡", "◇"),
+            "F0" to arrayOf("0", "-", "_", "+", "="),
+            "FS" to arrayOf(".", ",", "?", "!", "。")
         )
 
         val kanaRowLabelMap = mapOf(
@@ -1301,44 +1922,122 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         )
 
         val alphaRowLabelMap = mapOf(
-            "F1" to "abcde",
-            "F2" to "fghij",
-            "F3" to "klmno",
-            "F4" to "pqrst",
-            "F5" to "uvwxy",
-            "F6" to "z+記号",
-            "F7" to "ABCDE",
-            "F8" to "FGHIJ",
-            "F9" to "KLMNO",
-            "F0" to "PQRST",
-            "FS" to "UVWXZ"
+            "F1" to "@/:~",
+            "F2" to "abc",
+            "F3" to "def",
+            "F4" to "ghi",
+            "F5" to "jkl",
+            "F6" to "mno",
+            "F7" to "pqrs",
+            "F8" to "tuv",
+            "F9" to "wxyz",
+            "F0" to "-#",
+            "FS" to ".,?!"
+        )
+
+        val alphaCompactLabelMap = mapOf(
+            "F1" to "@/:~",
+            "F2" to "abc",
+            "F3" to "def",
+            "F4" to "ghi",
+            "F5" to "jkl",
+            "F6" to "mno",
+            "F7" to "pqrs",
+            "F8" to "tuv",
+            "F9" to "wxyz",
+            "F0" to "-#",
+            "FS" to ".,?!"
         )
 
         val numericRowLabelMap = mapOf(
-            "F1" to "1-5",
-            "F2" to "6-0",
-            "F3" to "句読点",
-            "F4" to "括弧",
-            "F5" to "記号1",
-            "F6" to "記号2",
-            "F7" to "記号3",
-            "F8" to "記号4",
-            "F9" to "通貨",
-            "F0" to "和文",
-            "FS" to "記号5"
+            "F1" to "1/@",
+            "F2" to "2/!",
+            "F3" to "3/+",
+            "F4" to "4/&",
+            "F5" to "5/¥",
+            "F6" to "6/<",
+            "F7" to "7/#",
+            "F8" to "8/[]",
+            "F9" to "9/☆",
+            "F0" to "0/-",
+            "FS" to ".,?!"
         )
 
-        val simpleKanaKanjiMap = mapOf(
+        val numericCompactLabelMap = mapOf(
+            "F1" to "1\n/:@~",
+            "F2" to "2\n!%\"'",
+            "F3" to "3\n+*=^",
+            "F4" to "4\n*&;:",
+            "F5" to "5\n¥$€￦",
+            "F6" to "6\n<^>=",
+            "F7" to "7\n#|〒※",
+            "F8" to "8\n[]()",
+            "F9" to "9\n☆○♡◇",
+            "F0" to "0\n-_+=",
+            "FS" to ".,?!\n。"
+        )
+
+        val builtInConversionCandidates = mapOf(
             "きょう" to listOf("今日"),
             "あした" to listOf("明日"),
             "きのう" to listOf("昨日"),
             "わたし" to listOf("私"),
             "にほん" to listOf("日本"),
             "とうきょう" to listOf("東京"),
+            "おおさか" to listOf("大阪"),
             "かんじ" to listOf("漢字"),
             "へんかん" to listOf("変換"),
-            "よろしく" to listOf("宜しく"),
-            "おねがい" to listOf("お願い")
+            "じしょ" to listOf("辞書"),
+            "よみ" to listOf("読み"),
+            "たんご" to listOf("単語"),
+            "たんごちょう" to listOf("単語帳"),
+            "おんせい" to listOf("音声"),
+            "にゅうりょく" to listOf("入力"),
+            "おんせいにゅうりょく" to listOf("音声入力"),
+            "きーぼーど" to listOf("キーボード"),
+            "ふりっく" to listOf("フリック"),
+            "てんきー" to listOf("テンキー"),
+            "かな" to listOf("かな"),
+            "かたかな" to listOf("カタカナ"),
+            "あぷり" to listOf("アプリ"),
+            "ぷれびゅー" to listOf("プレビュー"),
+            "ふぉるだー" to listOf("フォルダー"),
+            "だうんろーど" to listOf("ダウンロード"),
+            "いんすとーる" to listOf("インストール"),
+            "いんぽーと" to listOf("インポート"),
+            "えくすぽーと" to listOf("エクスポート"),
+            "らいん" to listOf("LINE", "ライン"),
+            "ちゃっとじーぴーてぃー" to listOf("ChatGPT", "チャットGPT"),
+            "おねがい" to listOf("お願い"),
+            "よろしく" to listOf("よろしく"),
+            "ありがとう" to listOf("ありがとう"),
+            "すみません" to listOf("すみません"),
+            "おつかれ" to listOf("お疲れ"),
+            "かくにん" to listOf("確認"),
+            "れんらく" to listOf("連絡"),
+            "たいおう" to listOf("対応"),
+            "しゅうせい" to listOf("修正"),
+            "こうしん" to listOf("更新"),
+            "へんしゅう" to listOf("編集"),
+            "けんさく" to listOf("検索"),
+            "せってい" to listOf("設定"),
+            "びょういん" to listOf("病院"),
+            "じかん" to listOf("時間"),
+            "よてい" to listOf("予定"),
+            "でんわ" to listOf("電話"),
+            "めーる" to listOf("メール"),
+            "かいぎ" to listOf("会議"),
+            "しりょう" to listOf("資料"),
+            "ほんじつ" to listOf("本日"),
+            "らいしゅう" to listOf("来週"),
+            "こんしゅう" to listOf("今週"),
+            "らいげつ" to listOf("来月"),
+            "こんげつ" to listOf("今月"),
+            "えらー" to listOf("エラー"),
+            "さいしどう" to listOf("再起動"),
+            "きゃっしゅ" to listOf("キャッシュ"),
+            "せいこう" to listOf("成功"),
+            "しっぱい" to listOf("失敗")
         )
 
         val dakutenMap = mapOf(

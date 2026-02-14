@@ -15,7 +15,7 @@ class SpeechController(
     interface Callback {
         fun onReady()
         fun onPartial(text: String)
-        fun onFinal(text: String)
+        fun onFinal(text: String, alternatives: List<String>)
         fun onError(message: String)
         fun onEnd()
     }
@@ -46,12 +46,14 @@ class SpeechController(
 
         override fun onResults(results: Bundle?) {
             listening = false
-            val text = results
+            val alternatives = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
                 .orEmpty()
+            val text = alternatives.firstOrNull().orEmpty()
             if (text.isNotBlank()) {
-                callback.onFinal(text)
+                callback.onFinal(text, alternatives)
             }
             callback.onEnd()
         }
@@ -76,7 +78,7 @@ class SpeechController(
         }
     }
 
-    fun startListening() {
+    fun startListening(biasHints: List<String> = emptyList()) {
         if (listening) return
         val engine = recognizer ?: run {
             callback.onError("音声認識エンジンが利用できません")
@@ -89,6 +91,13 @@ class SpeechController(
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            if (biasHints.isNotEmpty()) {
+                putStringArrayListExtra(
+                    "android.speech.extra.BIASING_STRINGS",
+                    ArrayList(biasHints.distinct().take(80))
+                )
+                putExtra("android.speech.extra.ENABLE_BIASING_DEVICE_CONTEXT", true)
+            }
         }
         listening = true
         try {
