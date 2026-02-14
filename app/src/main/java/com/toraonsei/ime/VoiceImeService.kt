@@ -58,6 +58,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var recordingRequested = false
     private var isRecognizerActive = false
     private var restartListeningJob: Job? = null
+    private var inputMode: InputMode = InputMode.KANA
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
@@ -68,6 +69,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var flickPopupWindow: PopupWindow? = null
     private var flickPopupText: TextView? = null
     private var toggleTapState: ToggleTapState? = null
+    private var conversionState: ConversionState? = null
 
     private var rootView: View? = null
     private var candidateContainer: LinearLayout? = null
@@ -75,6 +77,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var micButton: Button? = null
     private var formatContextButton: Button? = null
     private var statusText: TextView? = null
+    private var inputModeButton: Button? = null
     private var keyBackspaceButton: Button? = null
     private var flickGuideText: TextView? = null
     private var tenKeyPanel: LinearLayout? = null
@@ -203,6 +206,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         micButton = view.findViewById(R.id.micButton)
         formatContextButton = view.findViewById(R.id.formatContextButton)
         statusText = view.findViewById(R.id.statusText)
+        inputModeButton = view.findViewById(R.id.inputModeButton)
         keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
         flickGuideText = view.findViewById(R.id.flickGuideText)
         tenKeyPanel = view.findViewById(R.id.tenKeyPanel)
@@ -267,6 +271,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun applyManualKeyboardMode() {
         tenKeyPanel?.isVisible = true
         flickGuideText?.isVisible = true
+        updateModeUi()
         hideFlickGuide()
         dismissFlickPopup()
     }
@@ -358,6 +363,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         if (root is Button) {
             val tag = root.tag as? String
             if (!tag.isNullOrBlank() && tag.startsWith("F")) {
+                root.includeFontPadding = false
+                root.maxLines = 3
+                root.textSize = if (resources.configuration.smallestScreenWidthDp >= 600) 18f else 12.5f
+                root.setPadding(dp(2), dp(2), dp(2), dp(2))
                 root.text = buildFlickKeyLabel(tag)
             }
             return
@@ -387,7 +396,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun resolveFlickKana(tag: String, direction: FlickDirection): String {
-        val table = flickMap[tag] ?: return ""
+        val table = activeFlickMap()[tag] ?: return ""
         return when (direction) {
             FlickDirection.CENTER -> table[0]
             FlickDirection.LEFT -> table[1]
@@ -399,13 +408,17 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun handleTaggedKeyInput(tag: String) {
         clearToggleTapState()
+        if (tag != "CONVERT") {
+            clearConversionState()
+        }
         when (tag) {
             "SPACE" -> commitTextDirect(" ")
             "ENTER" -> commitTextDirect("\n")
-            "BACKSPACE", "UNDO_LAST" -> handleBackspace()
+            "BACKSPACE" -> handleBackspace()
+            "CONVERT" -> convertReadingToCandidate()
             "CURSOR_LEFT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
             "CURSOR_RIGHT" -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
-            "MODE_CYCLE" -> setStatus("タップ連打入力: ON")
+            "MODE_CYCLE" -> cycleInputMode()
             "LANG_PICKER" -> showInputMethodPickerSafely()
             "DAKUTEN" -> applyDakuten()
             "HANDAKUTEN" -> applyHandakuten()
@@ -415,7 +428,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun handleCenterTapToggle(tag: String) {
-        val table = flickMap[tag] ?: return
+        val table = activeFlickMap()[tag] ?: return
         val now = System.currentTimeMillis()
         val existing = toggleTapState
 
@@ -461,9 +474,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
         ic.deleteSurroundingText(previous.length, 0)
         ic.commitText(next, 1)
-        if (next.isNotBlank()) {
-            lastCommittedText = next
-        }
+        rememberCommittedText(next)
         refreshSuggestions()
         return true
     }
@@ -472,9 +483,65 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         toggleTapState = null
     }
 
+    private fun clearConversionState() {
+        conversionState = null
+    }
+
+    private fun cycleInputMode() {
+        inputMode = when (inputMode) {
+            InputMode.KANA -> InputMode.ALPHA
+            InputMode.ALPHA -> InputMode.NUMERIC
+            InputMode.NUMERIC -> InputMode.KANA
+        }
+        clearToggleTapState()
+        clearConversionState()
+        updateModeUi()
+        rootView?.let { styleFlickTenKeys(it) }
+        hideFlickGuide()
+        setStatus(
+            when (inputMode) {
+                InputMode.KANA -> "入力モード: かな"
+                InputMode.ALPHA -> "入力モード: 英字"
+                InputMode.NUMERIC -> "入力モード: 数字/記号"
+            }
+        )
+    }
+
+    private fun updateModeUi() {
+        inputModeButton?.text = when (inputMode) {
+            InputMode.KANA -> "あ/A/1"
+            InputMode.ALPHA -> "A/1/あ"
+            InputMode.NUMERIC -> "1/あ/A"
+        }
+    }
+
+    private fun activeFlickMap(): Map<String, Array<String>> {
+        return when (inputMode) {
+            InputMode.KANA -> kanaFlickMap
+            InputMode.ALPHA -> alphaFlickMap
+            InputMode.NUMERIC -> numericFlickMap
+        }
+    }
+
+    private fun activeRowLabelMap(): Map<String, String> {
+        return when (inputMode) {
+            InputMode.KANA -> kanaRowLabelMap
+            InputMode.ALPHA -> alphaRowLabelMap
+            InputMode.NUMERIC -> numericRowLabelMap
+        }
+    }
+
+    private fun defaultGuideTextForMode(): String {
+        return when (inputMode) {
+            InputMode.KANA -> "タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
+            InputMode.ALPHA -> "タップ連打: 先頭→左→上→右→下 / 英字入力"
+            InputMode.NUMERIC -> "タップ連打: 先頭→左→上→右→下 / 数字・記号入力"
+        }
+    }
+
     private fun showFlickGuide(tag: String, direction: FlickDirection) {
-        val table = flickMap[tag] ?: return
-        val rowLabel = flickRowLabelMap[tag].orEmpty()
+        val table = activeFlickMap()[tag] ?: return
+        val rowLabel = activeRowLabelMap()[tag].orEmpty()
 
         val items = listOf(
             buildGuideItem("左", table[1], direction == FlickDirection.LEFT),
@@ -489,7 +556,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun hideFlickGuide() {
-        flickGuideText?.text = defaultFlickGuideText
+        flickGuideText?.text = defaultGuideTextForMode()
     }
 
     private fun buildGuideItem(label: String, value: String, selected: Boolean): String {
@@ -498,21 +565,21 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun buildFlickKeyLabel(tag: String): CharSequence {
-        val table = flickMap[tag] ?: return ""
+        val table = activeFlickMap()[tag] ?: return ""
         val parts = buildFlickLabelParts(table)
         return SpannableString(parts.text).apply {
-            applySpan(RelativeSizeSpan(0.82f), parts.up)
-            applySpan(RelativeSizeSpan(0.82f), parts.left)
-            applySpan(RelativeSizeSpan(0.82f), parts.right)
-            applySpan(RelativeSizeSpan(0.82f), parts.down)
-            applySpan(RelativeSizeSpan(1.48f), parts.center)
+            applySpan(RelativeSizeSpan(0.68f), parts.up)
+            applySpan(RelativeSizeSpan(0.68f), parts.left)
+            applySpan(RelativeSizeSpan(0.68f), parts.right)
+            applySpan(RelativeSizeSpan(0.68f), parts.down)
+            applySpan(RelativeSizeSpan(1.18f), parts.center)
             applySpan(StyleSpan(Typeface.BOLD), parts.center)
             applySpan(ForegroundColorSpan(0xFFF8FAFC.toInt()), parts.center)
         }
     }
 
     private fun buildFlickPopupLabel(tag: String, direction: FlickDirection): CharSequence {
-        val table = flickMap[tag] ?: return ""
+        val table = activeFlickMap()[tag] ?: return ""
         val parts = buildFlickLabelParts(table)
         val selected = when (direction) {
             FlickDirection.CENTER -> parts.center
@@ -537,7 +604,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun buildFlickLabelParts(table: Array<String>): FlickLabelParts {
         val sb = StringBuilder()
-        sb.append(' ')
         val upStart = sb.length
         sb.append(table[2])
         val upEnd = sb.length
@@ -558,7 +624,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val rightEnd = sb.length
 
         sb.append('\n')
-        sb.append(' ')
         val downStart = sb.length
         sb.append(table[4])
         val downEnd = sb.length
@@ -796,6 +861,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun handleBackspace() {
         clearToggleTapState()
+        clearConversionState()
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
@@ -808,16 +874,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun commitTextDirect(text: String) {
         if (text.isEmpty()) return
+        clearConversionState()
         currentInputConnection?.commitText(text, 1)
-        if (text.isNotBlank()) {
-            lastCommittedText = text
-            val pkg = currentPackageName()
-            val memory = appMemory.getOrPut(pkg) { AppBuffer() }
-            memory.appendHistory(text)
-            if (text.length >= 2 && !text.contains('\n')) {
-                memory.addRecentPhrase(text)
-            }
-        }
+        rememberCommittedText(text)
         refreshSuggestions()
     }
 
@@ -896,15 +955,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun commitAndTrack(text: String) {
         if (text.isEmpty()) return
         clearToggleTapState()
+        clearConversionState()
         currentInputConnection?.commitText(text, 1)
 
-        if (text.isNotBlank()) {
-            lastCommittedText = text
-            val pkg = currentPackageName()
-            val memory = appMemory.getOrPut(pkg) { AppBuffer() }
-            memory.appendHistory(text)
-            memory.addRecentPhrase(text)
-        }
+        rememberCommittedText(text)
         refreshSuggestions()
     }
 
@@ -929,6 +983,95 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun showInputMethodPickerSafely() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
         imm.showInputMethodPicker()
+    }
+
+    private fun convertReadingToCandidate() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(60, 0)?.toString().orEmpty()
+        val now = System.currentTimeMillis()
+        val existing = conversionState
+
+        if (
+            existing != null &&
+            now - existing.timestampMs <= convertCycleWindowMs &&
+            existing.candidates.size > 1 &&
+            before.endsWith(existing.currentOutput)
+        ) {
+            val nextIndex = (existing.index + 1) % existing.candidates.size
+            val next = existing.candidates[nextIndex]
+            ic.deleteSurroundingText(existing.currentOutput.length, 0)
+            ic.commitText(next, 1)
+            rememberCommittedText(next)
+            conversionState = existing.copy(
+                index = nextIndex,
+                currentOutput = next,
+                timestampMs = now
+            )
+            setStatus("変換 ${nextIndex + 1}/${existing.candidates.size}")
+            refreshSuggestions()
+            return
+        }
+
+        val reading = Regex("([ぁ-ゖー]+)$").find(before)?.groupValues?.get(1).orEmpty()
+        if (reading.isBlank()) {
+            setStatus("ひらがなを入力してから変換してください")
+            return
+        }
+
+        val candidates = buildConversionCandidates(reading)
+        if (candidates.isEmpty()) {
+            setStatus("変換候補なし: 単語帳に登録してください")
+            return
+        }
+
+        val first = candidates.first()
+        ic.deleteSurroundingText(reading.length, 0)
+        ic.commitText(first, 1)
+        rememberCommittedText(first)
+        conversionState = ConversionState(
+            reading = reading,
+            candidates = candidates,
+            index = 0,
+            currentOutput = first,
+            timestampMs = now
+        )
+        setStatus(
+            if (candidates.size > 1) "変換 1/${candidates.size}" else "変換しました"
+        )
+        refreshSuggestions()
+    }
+
+    private fun buildConversionCandidates(reading: String): List<String> {
+        val dictionaryCandidates = dictionaryEntries
+            .asSequence()
+            .filter { it.readingKana == reading }
+            .sortedWith(
+                compareByDescending<DictionaryEntry> { it.priority }
+                    .thenByDescending { it.createdAt }
+            )
+            .map { it.word.trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+
+        val builtIn = simpleKanaKanjiMap[reading].orEmpty()
+        val merged = linkedSetOf<String>()
+        dictionaryCandidates.forEach { merged.add(it) }
+        builtIn.forEach { merged.add(it) }
+        if (!merged.contains(reading)) {
+            merged.add(reading)
+        }
+        return merged.take(8)
+    }
+
+    private fun rememberCommittedText(text: String) {
+        if (text.isBlank()) return
+        lastCommittedText = text
+        val pkg = currentPackageName()
+        val memory = appMemory.getOrPut(pkg) { AppBuffer() }
+        memory.appendHistory(text)
+        if (text.length >= 2 && !text.contains('\n')) {
+            memory.addRecentPhrase(text)
+        }
     }
 
     private fun applyDictionaryCorrections(input: String): String {
@@ -1028,6 +1171,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val output: String
     )
 
+    private data class ConversionState(
+        val reading: String,
+        val candidates: List<String>,
+        val index: Int,
+        val currentOutput: String,
+        val timestampMs: Long
+    )
+
     private data class PhraseStats(
         var frequency: Int = 1,
         var lastUsedAt: Long = System.currentTimeMillis()
@@ -1083,11 +1234,17 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         CENTER, UP, RIGHT, DOWN, LEFT
     }
 
-    private companion object {
-        const val defaultFlickGuideText = "タップ連打: あ→い→う→え→お / フリック: 左=い 上=う 右=え 下=お"
-        const val toggleTapWindowMs = 850L
+    private enum class InputMode {
+        KANA,
+        ALPHA,
+        NUMERIC
+    }
 
-        val flickMap = mapOf(
+    private companion object {
+        const val toggleTapWindowMs = 850L
+        const val convertCycleWindowMs = 2200L
+
+        val kanaFlickMap = mapOf(
             "F1" to arrayOf("あ", "い", "う", "え", "お"),
             "F2" to arrayOf("か", "き", "く", "け", "こ"),
             "F3" to arrayOf("さ", "し", "す", "せ", "そ"),
@@ -1101,7 +1258,35 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "FS" to arrayOf("、", "。", "？", "！", "…")
         )
 
-        val flickRowLabelMap = mapOf(
+        val alphaFlickMap = mapOf(
+            "F1" to arrayOf("a", "b", "c", "d", "e"),
+            "F2" to arrayOf("f", "g", "h", "i", "j"),
+            "F3" to arrayOf("k", "l", "m", "n", "o"),
+            "F4" to arrayOf("p", "q", "r", "s", "t"),
+            "F5" to arrayOf("u", "v", "w", "x", "y"),
+            "F6" to arrayOf("z", ".", "@", "_", "-"),
+            "F7" to arrayOf("A", "B", "C", "D", "E"),
+            "F8" to arrayOf("F", "G", "H", "I", "J"),
+            "F9" to arrayOf("K", "L", "M", "N", "O"),
+            "F0" to arrayOf("P", "Q", "R", "S", "T"),
+            "FS" to arrayOf("U", "V", "W", "X", "Z")
+        )
+
+        val numericFlickMap = mapOf(
+            "F1" to arrayOf("1", "2", "3", "4", "5"),
+            "F2" to arrayOf("6", "7", "8", "9", "0"),
+            "F3" to arrayOf(".", ",", "?", "!", "…"),
+            "F4" to arrayOf("-", "/", "(", ")", ":"),
+            "F5" to arrayOf("@", "#", "%", "&", "*"),
+            "F6" to arrayOf("+", "=", "_", ";", "\""),
+            "F7" to arrayOf("[", "]", "{", "}", "\\"),
+            "F8" to arrayOf("<", ">", "^", "|", "~"),
+            "F9" to arrayOf("$", "¥", "€", "£", "`"),
+            "F0" to arrayOf("、", "。", "？", "！", "ー"),
+            "FS" to arrayOf("'", "\"", ":", ";", "/")
+        )
+
+        val kanaRowLabelMap = mapOf(
             "F1" to "あ行",
             "F2" to "か行",
             "F3" to "さ行",
@@ -1113,6 +1298,47 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "F9" to "ら行",
             "F0" to "わ行",
             "FS" to "記号"
+        )
+
+        val alphaRowLabelMap = mapOf(
+            "F1" to "abcde",
+            "F2" to "fghij",
+            "F3" to "klmno",
+            "F4" to "pqrst",
+            "F5" to "uvwxy",
+            "F6" to "z+記号",
+            "F7" to "ABCDE",
+            "F8" to "FGHIJ",
+            "F9" to "KLMNO",
+            "F0" to "PQRST",
+            "FS" to "UVWXZ"
+        )
+
+        val numericRowLabelMap = mapOf(
+            "F1" to "1-5",
+            "F2" to "6-0",
+            "F3" to "句読点",
+            "F4" to "括弧",
+            "F5" to "記号1",
+            "F6" to "記号2",
+            "F7" to "記号3",
+            "F8" to "記号4",
+            "F9" to "通貨",
+            "F0" to "和文",
+            "FS" to "記号5"
+        )
+
+        val simpleKanaKanjiMap = mapOf(
+            "きょう" to listOf("今日"),
+            "あした" to listOf("明日"),
+            "きのう" to listOf("昨日"),
+            "わたし" to listOf("私"),
+            "にほん" to listOf("日本"),
+            "とうきょう" to listOf("東京"),
+            "かんじ" to listOf("漢字"),
+            "へんかん" to listOf("変換"),
+            "よろしく" to listOf("宜しく"),
+            "おねがい" to listOf("お願い")
         )
 
         val dakutenMap = mapOf(

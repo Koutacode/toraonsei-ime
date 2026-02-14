@@ -120,22 +120,23 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:baselineAligned="false">
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
-                    android:tag="UNDO_LAST"
-                    android:text="↺"
+                    android:tag="CONVERT"
+                    android:text="変換"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
                     android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -145,11 +146,11 @@
                     android:text="あ"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -159,11 +160,11 @@
                     android:text="か"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -173,12 +174,12 @@
                     android:text="さ"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:id="@+id/keyBackspaceButton"
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -193,11 +194,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:baselineAligned="false">
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="CURSOR_LEFT"
@@ -208,7 +210,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -218,11 +220,11 @@
                     android:text="た"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -232,11 +234,11 @@
                     android:text="な"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -246,11 +248,11 @@
                     android:text="は"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -265,11 +267,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:baselineAligned="false">
 
                 <Button
+                    android:id="@+id/inputModeButton"
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="MODE_CYCLE"
@@ -280,7 +284,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -290,11 +294,11 @@
                     android:text="ま"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -304,11 +308,11 @@
                     android:text="や"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -318,11 +322,11 @@
                     android:text="ら"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -337,22 +341,23 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:baselineAligned="false">
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="SPACE"
                     android:text="空白"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -364,7 +369,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -374,11 +379,11 @@
                     android:text="わ"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -388,11 +393,11 @@
                     android:text="？！"
                     android:textAllCaps="false"
                     android:textColor="#F8FAFC"
-                    android:textSize="14sp" />
+                    android:textSize="20sp" />
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="66dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -452,7 +457,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+                android:baselineAligned="false">
 
             <Button
                 android:id="@+id/saveWordButton"
@@ -474,3 +480,4 @@
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
+
