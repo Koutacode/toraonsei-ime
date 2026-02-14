@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tora Onsei IME</string>
+    <string name="ime_name">Tora Onsei Voice IME</string>
+    <string name="subtype_ja">Japanese Voice</string>
+</resources>
