@@ -25,8 +25,10 @@ import com.toraonsei.speech.SpeechController
 import com.toraonsei.suggest.SuggestionEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -42,8 +44,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private val formatter = LocalFormatter()
 
     private var dictionaryEntries: List<DictionaryEntry> = emptyList()
-    private var isRecording = false
+    private var recordingRequested = false
+    private var isRecognizerActive = false
     private var manualKeyboardMode: ManualKeyboardMode = ManualKeyboardMode.TENKEY
+    private var restartListeningJob: Job? = null
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
@@ -61,6 +65,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var keyModeTextButton: Button? = null
     private var keyModeTenButton: Button? = null
     private var keyBackspaceButton: Button? = null
+    private var flickGuideText: TextView? = null
     private var textKeyboardPanel: LinearLayout? = null
     private var tenKeyPanel: LinearLayout? = null
 
@@ -126,17 +131,19 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        stopRecordingIfNeeded()
+        stopRecordingIfNeeded(forceCancel = true)
     }
 
     override fun onDestroy() {
-        stopRecordingIfNeeded()
+        stopRecordingIfNeeded(forceCancel = true)
+        restartListeningJob?.cancel()
         speechController.destroy()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onReady() {
+        isRecognizerActive = true
         setStatus("録音中...")
     }
 
@@ -158,13 +165,24 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     override fun onError(message: String) {
-        setStatus(message)
-        showToast(message)
+        isRecognizerActive = false
+        if (recordingRequested) {
+            setStatus("録音継続中: 再開します")
+        } else if (message == "音声入力エラー(クライアント)") {
+            setStatus("待機中")
+        } else {
+            setStatus(message)
+            showToast(message)
+        }
     }
 
     override fun onEnd() {
-        isRecording = false
-        updateMicState()
+        isRecognizerActive = false
+        if (recordingRequested) {
+            scheduleRestartListening()
+        } else {
+            updateMicState()
+        }
     }
 
     private fun bindViews(view: View) {
@@ -176,6 +194,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         keyModeTextButton = view.findViewById(R.id.keyModeTextButton)
         keyModeTenButton = view.findViewById(R.id.keyModeTenButton)
         keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
+        flickGuideText = view.findViewById(R.id.flickGuideText)
         textKeyboardPanel = view.findViewById(R.id.textKeyboardPanel)
         tenKeyPanel = view.findViewById(R.id.tenKeyPanel)
 
@@ -195,7 +214,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         addWordButton?.setOnClickListener { openAddWordPanel() }
 
         micButton?.setOnClickListener {
-            if (isRecording) {
+            if (recordingRequested) {
                 stopRecordingIfNeeded()
             } else {
                 startRecordingIfAllowed()
@@ -249,6 +268,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val isText = manualKeyboardMode == ManualKeyboardMode.TEXT
         textKeyboardPanel?.isVisible = isText
         tenKeyPanel?.isVisible = !isText
+        flickGuideText?.isVisible = !isText
+        if (!isText) {
+            hideFlickGuide()
+        }
         keyModeTextButton?.alpha = if (isText) 1f else 0.65f
         keyModeTenButton?.alpha = if (!isText) 1f else 0.65f
     }
@@ -276,6 +299,19 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             flickStartByButtonId[button.id] = event.x to event.y
+                            showFlickGuide(tag, FlickDirection.CENTER)
+                            true
+                        }
+
+                        MotionEvent.ACTION_MOVE -> {
+                            val start = flickStartByButtonId[button.id] ?: (event.x to event.y)
+                            val direction = resolveFlickDirection(
+                                startX = start.first,
+                                startY = start.second,
+                                endX = event.x,
+                                endY = event.y
+                            )
+                            showFlickGuide(tag, direction)
                             true
                         }
 
@@ -291,11 +327,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                             if (output.isNotBlank()) {
                                 commitTextDirect(output)
                             }
+                            hideFlickGuide()
                             true
                         }
 
                         MotionEvent.ACTION_CANCEL -> {
                             flickStartByButtonId.remove(button.id)
+                            hideFlickGuide()
                             true
                         }
 
@@ -333,10 +371,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val table = flickMap[tag] ?: return ""
         return when (direction) {
             FlickDirection.CENTER -> table[0]
-            FlickDirection.UP -> table[1]
-            FlickDirection.RIGHT -> table[2]
-            FlickDirection.DOWN -> table[3]
-            FlickDirection.LEFT -> table[4]
+            FlickDirection.LEFT -> table[1]
+            FlickDirection.UP -> table[2]
+            FlickDirection.RIGHT -> table[3]
+            FlickDirection.DOWN -> table[4]
         }
     }
 
@@ -349,6 +387,31 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "SMALL" -> applySmallKana()
             else -> commitTextDirect(tag)
         }
+    }
+
+    private fun showFlickGuide(tag: String, direction: FlickDirection) {
+        val table = flickMap[tag] ?: return
+        val rowLabel = flickRowLabelMap[tag].orEmpty()
+
+        val items = listOf(
+            buildGuideItem("上", table[2], direction == FlickDirection.UP),
+            buildGuideItem("左", table[1], direction == FlickDirection.LEFT),
+            buildGuideItem("中", table[0], direction == FlickDirection.CENTER),
+            buildGuideItem("右", table[3], direction == FlickDirection.RIGHT),
+            buildGuideItem("下", table[4], direction == FlickDirection.DOWN)
+        )
+
+        val prefix = if (rowLabel.isNotBlank()) "$rowLabel  " else ""
+        flickGuideText?.text = prefix + items.joinToString("  ")
+    }
+
+    private fun hideFlickGuide() {
+        flickGuideText?.text = defaultFlickGuideText
+    }
+
+    private fun buildGuideItem(label: String, value: String, selected: Boolean): String {
+        val base = "$label:$value"
+        return if (selected) "【$base】" else base
     }
 
     private fun applyDakuten() {
@@ -384,7 +447,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun startRecordingIfAllowed() {
-        if (isRecording) return
+        if (recordingRequested) return
         val granted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.RECORD_AUDIO
@@ -396,21 +459,44 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             return
         }
 
-        isRecording = true
+        recordingRequested = true
+        isRecognizerActive = false
+        restartListeningJob?.cancel()
         updateMicState()
-        speechController.startListening()
+        startListeningSession()
     }
 
-    private fun stopRecordingIfNeeded() {
-        if (!isRecording) return
-        speechController.stopListening()
-        isRecording = false
+    private fun stopRecordingIfNeeded(forceCancel: Boolean = false) {
+        if (!recordingRequested && !isRecognizerActive) return
+        recordingRequested = false
+        restartListeningJob?.cancel()
+        if (forceCancel) {
+            speechController.cancel()
+        } else {
+            speechController.stopListening()
+        }
+        isRecognizerActive = false
         updateMicState()
+        setStatus("待機中")
+    }
+
+    private fun scheduleRestartListening() {
+        restartListeningJob?.cancel()
+        restartListeningJob = serviceScope.launch {
+            delay(140)
+            if (recordingRequested) {
+                startListeningSession()
+            }
+        }
+    }
+
+    private fun startListeningSession() {
+        speechController.startListening()
     }
 
     private fun updateMicState() {
         val button = micButton ?: return
-        if (isRecording) {
+        if (recordingRequested) {
             button.text = "録音停止"
             button.setBackgroundResource(R.drawable.bg_mic_active)
         } else {
@@ -420,7 +506,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun formatLastVoiceInputWithContext() {
-        val source = lastVoiceCommittedText.ifBlank { lastCommittedText }
+        val ic = currentInputConnection ?: return
+        val selected = ic.getSelectedText(0)?.toString().orEmpty().trim()
+        val source = when {
+            selected.isNotBlank() -> selected
+            lastVoiceCommittedText.isNotBlank() -> lastVoiceCommittedText
+            else -> lastCommittedText
+        }
         if (source.isBlank()) {
             setStatus("先に音声入力してください")
             return
@@ -441,12 +533,19 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             setStatus("整形結果が空でした")
             return
         }
-
-        val ic = currentInputConnection ?: return
-        if (before.endsWith(source)) {
-            ic.deleteSurroundingText(source.length, 0)
+        if (formatted == source) {
+            setStatus("文面整形: 変更なし")
+            return
         }
-        ic.commitText(formatted, 1)
+
+        if (selected.isNotBlank()) {
+            ic.commitText(formatted, 1)
+        } else if (before.endsWith(source)) {
+            ic.deleteSurroundingText(source.length, 0)
+            ic.commitText(formatted, 1)
+        } else {
+            ic.commitText(formatted, 1)
+        }
 
         lastCommittedText = formatted
         lastVoiceCommittedText = formatted
@@ -714,6 +813,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private companion object {
+        const val defaultFlickGuideText = "キーを押したまま動かすと、上/右/下/左の文字候補を表示"
+
         val flickMap = mapOf(
             "F1" to arrayOf("あ", "い", "う", "え", "お"),
             "F2" to arrayOf("か", "き", "く", "け", "こ"),
@@ -724,7 +825,22 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "F7" to arrayOf("ま", "み", "む", "め", "も"),
             "F8" to arrayOf("や", "（", "ゆ", "）", "よ"),
             "F9" to arrayOf("ら", "り", "る", "れ", "ろ"),
-            "F0" to arrayOf("わ", "を", "ん", "ー", "〜")
+            "F0" to arrayOf("わ", "を", "ん", "ー", "〜"),
+            "FS" to arrayOf("、", "。", "？", "！", "…")
+        )
+
+        val flickRowLabelMap = mapOf(
+            "F1" to "あ行",
+            "F2" to "か行",
+            "F3" to "さ行",
+            "F4" to "た行",
+            "F5" to "な行",
+            "F6" to "は行",
+            "F7" to "ま行",
+            "F8" to "や行",
+            "F9" to "ら行",
+            "F0" to "わ行",
+            "FS" to "記号"
         )
 
         val dakutenMap = mapOf(
