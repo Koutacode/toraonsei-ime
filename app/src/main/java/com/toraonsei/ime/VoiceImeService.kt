@@ -2,7 +2,15 @@ package com.toraonsei.ime
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -11,6 +19,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -55,6 +64,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private val appMemory = mutableMapOf<String, AppBuffer>()
     private val flickStartByButtonId = mutableMapOf<Int, Pair<Float, Float>>()
+    private var flickPopupWindow: PopupWindow? = null
+    private var flickPopupText: TextView? = null
 
     private var rootView: View? = null
     private var candidateContainer: LinearLayout? = null
@@ -132,11 +143,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         stopRecordingIfNeeded(forceCancel = true)
+        dismissFlickPopup()
     }
 
     override fun onDestroy() {
         stopRecordingIfNeeded(forceCancel = true)
         restartListeningJob?.cancel()
+        dismissFlickPopup()
         speechController.destroy()
         serviceScope.cancel()
         super.onDestroy()
@@ -209,6 +222,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         rootView?.let {
             bindTaggedKeyButtons(it)
             bindFlickTenKeys(it)
+            styleFlickTenKeys(it)
         }
 
         addWordButton?.setOnClickListener { openAddWordPanel() }
@@ -269,9 +283,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         textKeyboardPanel?.isVisible = isText
         tenKeyPanel?.isVisible = !isText
         flickGuideText?.isVisible = !isText
-        if (!isText) {
-            hideFlickGuide()
-        }
+        hideFlickGuide()
+        dismissFlickPopup()
         keyModeTextButton?.alpha = if (isText) 1f else 0.65f
         keyModeTenButton?.alpha = if (!isText) 1f else 0.65f
     }
@@ -300,6 +313,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                         MotionEvent.ACTION_DOWN -> {
                             flickStartByButtonId[button.id] = event.x to event.y
                             showFlickGuide(tag, FlickDirection.CENTER)
+                            showFlickPopup(button, tag, FlickDirection.CENTER)
                             true
                         }
 
@@ -312,6 +326,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                                 endY = event.y
                             )
                             showFlickGuide(tag, direction)
+                            showFlickPopup(button, tag, direction)
                             true
                         }
 
@@ -328,12 +343,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                                 commitTextDirect(output)
                             }
                             hideFlickGuide()
+                            dismissFlickPopup()
                             true
                         }
 
                         MotionEvent.ACTION_CANCEL -> {
                             flickStartByButtonId.remove(button.id)
                             hideFlickGuide()
+                            dismissFlickPopup()
                             true
                         }
 
@@ -346,6 +363,21 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
                 bindFlickTenKeys(root.getChildAt(i))
+            }
+        }
+    }
+
+    private fun styleFlickTenKeys(root: View) {
+        if (root is Button) {
+            val tag = root.tag as? String
+            if (!tag.isNullOrBlank() && tag.startsWith("F")) {
+                root.text = buildFlickKeyLabel(tag)
+            }
+            return
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                styleFlickTenKeys(root.getChildAt(i))
             }
         }
     }
@@ -412,6 +444,151 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun buildGuideItem(label: String, value: String, selected: Boolean): String {
         val base = "$label:$value"
         return if (selected) "【$base】" else base
+    }
+
+    private fun buildFlickKeyLabel(tag: String): CharSequence {
+        val table = flickMap[tag] ?: return ""
+        val parts = buildFlickLabelParts(table)
+        return SpannableString(parts.text).apply {
+            applySpan(RelativeSizeSpan(0.82f), parts.up)
+            applySpan(RelativeSizeSpan(0.82f), parts.left)
+            applySpan(RelativeSizeSpan(0.82f), parts.right)
+            applySpan(RelativeSizeSpan(0.82f), parts.down)
+            applySpan(RelativeSizeSpan(1.48f), parts.center)
+            applySpan(StyleSpan(Typeface.BOLD), parts.center)
+            applySpan(ForegroundColorSpan(0xFF0F172A.toInt()), parts.center)
+        }
+    }
+
+    private fun buildFlickPopupLabel(tag: String, direction: FlickDirection): CharSequence {
+        val table = flickMap[tag] ?: return ""
+        val parts = buildFlickLabelParts(table)
+        val selected = when (direction) {
+            FlickDirection.CENTER -> parts.center
+            FlickDirection.LEFT -> parts.left
+            FlickDirection.UP -> parts.up
+            FlickDirection.RIGHT -> parts.right
+            FlickDirection.DOWN -> parts.down
+        }
+
+        return SpannableString(parts.text).apply {
+            applySpan(RelativeSizeSpan(1.18f), parts.up)
+            applySpan(RelativeSizeSpan(1.18f), parts.left)
+            applySpan(RelativeSizeSpan(1.18f), parts.right)
+            applySpan(RelativeSizeSpan(1.18f), parts.down)
+            applySpan(RelativeSizeSpan(1.58f), parts.center)
+            applySpan(StyleSpan(Typeface.BOLD), parts.center)
+            applySpan(RelativeSizeSpan(1.64f), selected)
+            applySpan(StyleSpan(Typeface.BOLD), selected)
+            applySpan(BackgroundColorSpan(0xFF1D4ED8.toInt()), selected)
+        }
+    }
+
+    private fun buildFlickLabelParts(table: Array<String>): FlickLabelParts {
+        val sb = StringBuilder()
+        sb.append(' ')
+        val upStart = sb.length
+        sb.append(table[2])
+        val upEnd = sb.length
+
+        sb.append('\n')
+        val leftStart = sb.length
+        sb.append(table[1])
+        val leftEnd = sb.length
+
+        sb.append(' ')
+        val centerStart = sb.length
+        sb.append(table[0])
+        val centerEnd = sb.length
+
+        sb.append(' ')
+        val rightStart = sb.length
+        sb.append(table[3])
+        val rightEnd = sb.length
+
+        sb.append('\n')
+        sb.append(' ')
+        val downStart = sb.length
+        sb.append(table[4])
+        val downEnd = sb.length
+
+        return FlickLabelParts(
+            text = sb.toString(),
+            up = SpanRange(upStart, upEnd),
+            left = SpanRange(leftStart, leftEnd),
+            center = SpanRange(centerStart, centerEnd),
+            right = SpanRange(rightStart, rightEnd),
+            down = SpanRange(downStart, downEnd)
+        )
+    }
+
+    private fun showFlickPopup(anchor: View, tag: String, direction: FlickDirection) {
+        val popup = ensureFlickPopup() ?: return
+        val popupTextView = flickPopupText ?: return
+        popupTextView.text = buildFlickPopupLabel(tag, direction)
+
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        popupTextView.measure(widthSpec, heightSpec)
+
+        val popupWidth = popupTextView.measuredWidth.coerceAtLeast(dp(96))
+        val popupHeight = popupTextView.measuredHeight.coerceAtLeast(dp(84))
+
+        val location = IntArray(2)
+        anchor.getLocationOnScreen(location)
+        val x = location[0] + (anchor.width - popupWidth) / 2
+        val y = location[1] - popupHeight - dp(8)
+
+        val parent = rootView ?: anchor
+        try {
+            if (popup.isShowing) {
+                popup.update(x, y, popupWidth, popupHeight)
+            } else {
+                popup.showAtLocation(parent, Gravity.NO_GRAVITY, x, y)
+            }
+        } catch (_: RuntimeException) {
+            // IMEウィンドウ再生成タイミングでは表示に失敗することがあるため無視。
+        }
+    }
+
+    private fun ensureFlickPopup(): PopupWindow? {
+        val existing = flickPopupWindow
+        if (existing != null) {
+            return existing
+        }
+
+        val popupTextView = TextView(this).apply {
+            setBackgroundResource(R.drawable.bg_flick_popup)
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            includeFontPadding = false
+        }
+
+        flickPopupText = popupTextView
+        val window = PopupWindow(
+            popupTextView,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            false
+        ).apply {
+            isTouchable = false
+            isFocusable = false
+            isOutsideTouchable = false
+            isClippingEnabled = false
+            elevation = dp(8).toFloat()
+        }
+        flickPopupWindow = window
+        return window
+    }
+
+    private fun dismissFlickPopup() {
+        try {
+            flickPopupWindow?.dismiss()
+        } catch (_: RuntimeException) {
+            // dismiss失敗は無視
+        }
     }
 
     private fun applyDakuten() {
@@ -751,6 +928,24 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val density = resources.displayMetrics.density
         return (value * density).toInt()
     }
+
+    private fun SpannableString.applySpan(span: Any, range: SpanRange) {
+        setSpan(span, range.start, range.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+
+    private data class SpanRange(
+        val start: Int,
+        val end: Int
+    )
+
+    private data class FlickLabelParts(
+        val text: String,
+        val up: SpanRange,
+        val left: SpanRange,
+        val center: SpanRange,
+        val right: SpanRange,
+        val down: SpanRange
+    )
 
     private data class PhraseStats(
         var frequency: Int = 1,
