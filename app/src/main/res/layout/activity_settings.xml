@@ -20,7 +20,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="1) キーボードを有効化 → 2) このキーボードを選択 → 3) 入力欄でマイク長押し" />
+            android:text="1) キーボードを有効化 → 2) このキーボードを選択 → 3) 入力欄で録音開始/停止をタップ" />
 
         <Button
             android:id="@+id/openImeSettingsButton"
@@ -62,7 +62,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="・音声は押下中のみ録音\n・外部送信なし（ローカル処理のみ）\n・単語帳は端末内保存\n・整形は抽出的で創作しない" />
+            android:text="・音声は手動で開始/停止（常時録音なし）\n・外部送信なし（ローカル処理のみ）\n・単語帳は端末内保存\n・整形は入力文の範囲で実施（創作しない）" />
 
     </LinearLayout>
 </ScrollView>
