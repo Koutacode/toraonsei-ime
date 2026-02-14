@@ -1,0 +1,2 @@
+output/toraonsei-debug.apk filter=lfs diff=lfs merge=lfs -text
+temp_release/toraonsei-debug.apk filter=lfs diff=lfs merge=lfs -text
