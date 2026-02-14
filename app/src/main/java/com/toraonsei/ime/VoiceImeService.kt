@@ -20,7 +20,6 @@ import com.toraonsei.R
 import com.toraonsei.dict.UserDictionaryRepository
 import com.toraonsei.format.LocalFormatter
 import com.toraonsei.model.DictionaryEntry
-import com.toraonsei.model.ImeMode
 import com.toraonsei.model.RecentPhrase
 import com.toraonsei.speech.SpeechController
 import com.toraonsei.suggest.SuggestionEngine
@@ -30,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
@@ -42,38 +42,27 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private val formatter = LocalFormatter()
 
     private var dictionaryEntries: List<DictionaryEntry> = emptyList()
-
-    private var mode: ImeMode = ImeMode.SHORT
     private var isRecording = false
-    private var manualKeyboardMode: ManualKeyboardMode = ManualKeyboardMode.TEXT
+    private var manualKeyboardMode: ManualKeyboardMode = ManualKeyboardMode.TENKEY
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
-    private var rawPreview: String = ""
-    private var formattedPreview: String = ""
+    private var lastVoiceCommittedText: String = ""
 
     private val appMemory = mutableMapOf<String, AppBuffer>()
+    private val flickStartByButtonId = mutableMapOf<Int, Pair<Float, Float>>()
 
     private var rootView: View? = null
     private var candidateContainer: LinearLayout? = null
     private var addWordButton: Button? = null
     private var micButton: Button? = null
-    private var modeShortButton: Button? = null
-    private var modeLongButton: Button? = null
+    private var formatContextButton: Button? = null
     private var statusText: TextView? = null
     private var keyModeTextButton: Button? = null
     private var keyModeTenButton: Button? = null
     private var keyBackspaceButton: Button? = null
     private var textKeyboardPanel: LinearLayout? = null
     private var tenKeyPanel: LinearLayout? = null
-
-    private var longPanel: LinearLayout? = null
-    private var rawPreviewText: TextView? = null
-    private var formattedPreviewText: TextView? = null
-    private var bulletButton: Button? = null
-    private var casualButton: Button? = null
-    private var insertRawButton: Button? = null
-    private var insertFormattedButton: Button? = null
 
     private var addWordPanel: LinearLayout? = null
     private var addWordEdit: EditText? = null
@@ -99,9 +88,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         rootView = view
         bindViews(view)
         setupListeners()
-        updateMicState()
         applyManualKeyboardMode()
-        applyModeUI()
+        updateMicState()
         refreshSuggestions()
         return view
     }
@@ -153,9 +141,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     override fun onPartial(text: String) {
-        if (mode == ImeMode.LONG) {
-            rawPreview = text
-            rawPreviewText?.text = rawPreview
+        if (text.isNotBlank()) {
             setStatus("認識中(途中結果)")
         }
     }
@@ -166,17 +152,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             setStatus("認識結果が空でした")
             return
         }
-
-        if (mode == ImeMode.SHORT) {
-            commitAndTrack(corrected)
-            setStatus("即入力しました")
-        } else {
-            rawPreview = corrected
-            formattedPreview = ""
-            rawPreviewText?.text = rawPreview
-            formattedPreviewText?.text = ""
-            setStatus("長文プレビューを更新")
-        }
+        commitAndTrack(corrected)
+        lastVoiceCommittedText = corrected
+        setStatus("音声入力しました")
     }
 
     override fun onError(message: String) {
@@ -193,22 +171,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         candidateContainer = view.findViewById(R.id.candidateContainer)
         addWordButton = view.findViewById(R.id.addWordButton)
         micButton = view.findViewById(R.id.micButton)
-        modeShortButton = view.findViewById(R.id.modeShortButton)
-        modeLongButton = view.findViewById(R.id.modeLongButton)
+        formatContextButton = view.findViewById(R.id.formatContextButton)
         statusText = view.findViewById(R.id.statusText)
         keyModeTextButton = view.findViewById(R.id.keyModeTextButton)
         keyModeTenButton = view.findViewById(R.id.keyModeTenButton)
         keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
         textKeyboardPanel = view.findViewById(R.id.textKeyboardPanel)
         tenKeyPanel = view.findViewById(R.id.tenKeyPanel)
-
-        longPanel = view.findViewById(R.id.longPanel)
-        rawPreviewText = view.findViewById(R.id.rawPreviewText)
-        formattedPreviewText = view.findViewById(R.id.formattedPreviewText)
-        bulletButton = view.findViewById(R.id.bulletButton)
-        casualButton = view.findViewById(R.id.casualButton)
-        insertRawButton = view.findViewById(R.id.insertRawButton)
-        insertFormattedButton = view.findViewById(R.id.insertFormattedButton)
 
         addWordPanel = view.findViewById(R.id.addWordPanel)
         addWordEdit = view.findViewById(R.id.addWordEdit)
@@ -218,28 +187,12 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun setupListeners() {
-        rootView?.let { bindTaggedKeyButtons(it) }
-
-        addWordButton?.setOnClickListener {
-            openAddWordPanel()
+        rootView?.let {
+            bindTaggedKeyButtons(it)
+            bindFlickTenKeys(it)
         }
 
-        micButton?.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startRecordingIfAllowed()
-                    true
-                }
-
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    stopRecordingIfNeeded()
-                    true
-                }
-
-                else -> false
-            }
-        }
+        addWordButton?.setOnClickListener { openAddWordPanel() }
 
         micButton?.setOnClickListener {
             if (isRecording) {
@@ -249,16 +202,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             }
         }
 
-        modeShortButton?.setOnClickListener {
-            mode = ImeMode.SHORT
-            applyModeUI()
-            refreshSuggestions()
-        }
-
-        modeLongButton?.setOnClickListener {
-            mode = ImeMode.LONG
-            applyModeUI()
-            refreshSuggestions()
+        formatContextButton?.setOnClickListener {
+            formatLastVoiceInputWithContext()
         }
 
         keyModeTextButton?.setOnClickListener {
@@ -273,44 +218,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
         keyBackspaceButton?.setOnClickListener {
             handleBackspace()
-        }
-
-        bulletButton?.setOnClickListener {
-            if (rawPreview.isBlank()) {
-                setStatus("先に音声を認識してください")
-                return@setOnClickListener
-            }
-            formattedPreview = formatter.toBulletPoints(
-                input = rawPreview,
-                dictionaryWords = dictionaryEntries.map { it.word }.toSet()
-            )
-            formattedPreviewText?.text = formattedPreview
-            setStatus("箇条書きに整形")
-        }
-
-        casualButton?.setOnClickListener {
-            if (rawPreview.isBlank()) {
-                setStatus("先に音声を認識してください")
-                return@setOnClickListener
-            }
-            formattedPreview = formatter.toCasualMessage(rawPreview)
-            formattedPreviewText?.text = formattedPreview
-            setStatus("送信用に整形")
-        }
-
-        insertRawButton?.setOnClickListener {
-            if (rawPreview.isBlank()) return@setOnClickListener
-            commitAndTrack(rawPreview)
-            clearPreview()
-            setStatus("原文を挿入")
-        }
-
-        insertFormattedButton?.setOnClickListener {
-            val text = formattedPreview.ifBlank { rawPreview }
-            if (text.isBlank()) return@setOnClickListener
-            commitAndTrack(text)
-            clearPreview()
-            setStatus("整形結果を挿入")
         }
 
         addReadingEdit?.doAfterTextChanged { editable ->
@@ -335,17 +242,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             }
         }
 
-        cancelWordButton?.setOnClickListener {
-            hideAddWordPanel()
-        }
-    }
-
-    private fun applyModeUI() {
-        val isLong = mode == ImeMode.LONG
-        longPanel?.isVisible = isLong
-
-        modeShortButton?.alpha = if (!isLong) 1f else 0.65f
-        modeLongButton?.alpha = if (isLong) 1f else 0.65f
+        cancelWordButton?.setOnClickListener { hideAddWordPanel() }
     }
 
     private fun applyManualKeyboardMode() {
@@ -359,7 +256,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun bindTaggedKeyButtons(root: View) {
         if (root is Button) {
             val tag = root.tag as? String
-            if (!tag.isNullOrBlank()) {
+            if (!tag.isNullOrBlank() && !tag.startsWith("F")) {
                 root.setOnClickListener { handleTaggedKeyInput(tag) }
             }
             return
@@ -371,30 +268,119 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
+    private fun bindFlickTenKeys(root: View) {
+        if (root is Button) {
+            val tag = root.tag as? String
+            if (!tag.isNullOrBlank() && tag.startsWith("F")) {
+                root.setOnTouchListener { button, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            flickStartByButtonId[button.id] = event.x to event.y
+                            true
+                        }
+
+                        MotionEvent.ACTION_UP -> {
+                            val start = flickStartByButtonId.remove(button.id) ?: (event.x to event.y)
+                            val direction = resolveFlickDirection(
+                                startX = start.first,
+                                startY = start.second,
+                                endX = event.x,
+                                endY = event.y
+                            )
+                            val output = resolveFlickKana(tag, direction)
+                            if (output.isNotBlank()) {
+                                commitTextDirect(output)
+                            }
+                            true
+                        }
+
+                        MotionEvent.ACTION_CANCEL -> {
+                            flickStartByButtonId.remove(button.id)
+                            true
+                        }
+
+                        else -> true
+                    }
+                }
+            }
+            return
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                bindFlickTenKeys(root.getChildAt(i))
+            }
+        }
+    }
+
+    private fun resolveFlickDirection(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float
+    ): FlickDirection {
+        val dx = endX - startX
+        val dy = endY - startY
+        if (abs(dx) < dp(18) && abs(dy) < dp(18)) {
+            return FlickDirection.CENTER
+        }
+        if (abs(dx) > abs(dy)) {
+            return if (dx > 0f) FlickDirection.RIGHT else FlickDirection.LEFT
+        }
+        return if (dy > 0f) FlickDirection.DOWN else FlickDirection.UP
+    }
+
+    private fun resolveFlickKana(tag: String, direction: FlickDirection): String {
+        val table = flickMap[tag] ?: return ""
+        return when (direction) {
+            FlickDirection.CENTER -> table[0]
+            FlickDirection.UP -> table[1]
+            FlickDirection.RIGHT -> table[2]
+            FlickDirection.DOWN -> table[3]
+            FlickDirection.LEFT -> table[4]
+        }
+    }
+
     private fun handleTaggedKeyInput(tag: String) {
         when (tag) {
             "SPACE" -> commitTextDirect(" ")
             "ENTER" -> commitTextDirect("\n")
-            "BACKSPACE" -> handleBackspace()
+            "DAKUTEN" -> applyDakuten()
+            "HANDAKUTEN" -> applyHandakuten()
+            "SMALL" -> applySmallKana()
             else -> commitTextDirect(tag)
         }
     }
 
-    private fun handleBackspace() {
-        val ic = currentInputConnection ?: return
-        val selected = ic.getSelectedText(0)
-        if (!selected.isNullOrEmpty()) {
-            ic.commitText("", 1)
-        } else {
-            ic.deleteSurroundingText(1, 0)
+    private fun applyDakuten() {
+        val changed = replacePreviousChar(dakutenMap)
+        if (!changed) {
+            commitTextDirect("゛")
         }
-        refreshSuggestions()
     }
 
-    private fun commitTextDirect(text: String) {
-        if (text.isEmpty()) return
-        currentInputConnection?.commitText(text, 1)
+    private fun applyHandakuten() {
+        val changed = replacePreviousChar(handakutenMap)
+        if (!changed) {
+            commitTextDirect("゜")
+        }
+    }
+
+    private fun applySmallKana() {
+        val changed = replacePreviousChar(smallKanaMap)
+        if (!changed) {
+            commitTextDirect("っ")
+        }
+    }
+
+    private fun replacePreviousChar(map: Map<Char, Char>): Boolean {
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+        if (before.isEmpty()) return false
+        val target = map[before.last()] ?: return false
+        ic.deleteSurroundingText(1, 0)
+        ic.commitText(target.toString(), 1)
         refreshSuggestions()
+        return true
     }
 
     private fun startRecordingIfAllowed() {
@@ -425,12 +411,70 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun updateMicState() {
         val button = micButton ?: return
         if (isRecording) {
-            button.text = "録音中"
+            button.text = "録音停止"
             button.setBackgroundResource(R.drawable.bg_mic_active)
         } else {
-            button.text = "押して録音"
+            button.text = "録音開始"
             button.setBackgroundResource(R.drawable.bg_chip)
         }
+    }
+
+    private fun formatLastVoiceInputWithContext() {
+        val source = lastVoiceCommittedText.ifBlank { lastCommittedText }
+        if (source.isBlank()) {
+            setStatus("先に音声入力してください")
+            return
+        }
+        val before = getCurrentBeforeCursor()
+        val after = getCurrentAfterCursor()
+        val pkg = currentPackageName()
+        val history = appMemory[pkg]?.history?.toString().orEmpty()
+
+        val formatted = formatter.formatWithContext(
+            input = source,
+            beforeCursor = before,
+            afterCursor = after,
+            appHistory = history,
+            dictionaryWords = dictionaryEntries.map { it.word }.toSet()
+        )
+        if (formatted.isBlank()) {
+            setStatus("整形結果が空でした")
+            return
+        }
+
+        val ic = currentInputConnection ?: return
+        if (before.endsWith(source)) {
+            ic.deleteSurroundingText(source.length, 0)
+        }
+        ic.commitText(formatted, 1)
+
+        lastCommittedText = formatted
+        lastVoiceCommittedText = formatted
+        val memory = appMemory.getOrPut(pkg) { AppBuffer() }
+        memory.appendHistory(formatted)
+        memory.addRecentPhrase(formatted)
+        refreshSuggestions()
+        setStatus("文面を整形しました")
+    }
+
+    private fun handleBackspace() {
+        val ic = currentInputConnection ?: return
+        val selected = ic.getSelectedText(0)
+        if (!selected.isNullOrEmpty()) {
+            ic.commitText("", 1)
+        } else {
+            ic.deleteSurroundingText(1, 0)
+        }
+        refreshSuggestions()
+    }
+
+    private fun commitTextDirect(text: String) {
+        if (text.isEmpty()) return
+        currentInputConnection?.commitText(text, 1)
+        if (text.isNotBlank()) {
+            lastCommittedText = text
+        }
+        refreshSuggestions()
     }
 
     private fun setStatus(message: String) {
@@ -441,17 +485,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun clearPreview() {
-        rawPreview = ""
-        formattedPreview = ""
-        rawPreviewText?.text = ""
-        formattedPreviewText?.text = ""
-    }
-
     private fun openAddWordPanel() {
         val seed = when {
-            formattedPreview.isNotBlank() -> formattedPreview
-            rawPreview.isNotBlank() -> rawPreview
             lastSelectedCandidate.isNotBlank() -> lastSelectedCandidate
             lastCommittedText.isNotBlank() -> lastCommittedText
             else -> getCurrentBeforeCursor().takeLast(24)
@@ -483,7 +518,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             dictionary = dictionaryEntries,
             recentPhrases = memory.toRecentPhrases()
         )
-
         renderCandidates(suggestions)
     }
 
@@ -517,17 +551,15 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun commitAndTrack(text: String) {
         if (text.isEmpty()) return
-
         currentInputConnection?.commitText(text, 1)
+
         if (text.isNotBlank()) {
             lastCommittedText = text
-
             val pkg = currentPackageName()
             val memory = appMemory.getOrPut(pkg) { AppBuffer() }
             memory.appendHistory(text)
             memory.addRecentPhrase(text)
         }
-
         refreshSuggestions()
     }
 
@@ -662,19 +694,53 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         fun toRecentPhrases(): List<RecentPhrase> {
-            return phraseMap.entries
-                .map { (text, stats) ->
-                    RecentPhrase(
-                        text = text,
-                        frequency = stats.frequency,
-                        lastUsedAt = stats.lastUsedAt
-                    )
-                }
+            return phraseMap.entries.map { (text, stats) ->
+                RecentPhrase(
+                    text = text,
+                    frequency = stats.frequency,
+                    lastUsedAt = stats.lastUsedAt
+                )
+            }
         }
     }
 
     private enum class ManualKeyboardMode {
         TEXT,
         TENKEY
+    }
+
+    private enum class FlickDirection {
+        CENTER, UP, RIGHT, DOWN, LEFT
+    }
+
+    private companion object {
+        val flickMap = mapOf(
+            "F1" to arrayOf("あ", "い", "う", "え", "お"),
+            "F2" to arrayOf("か", "き", "く", "け", "こ"),
+            "F3" to arrayOf("さ", "し", "す", "せ", "そ"),
+            "F4" to arrayOf("た", "ち", "つ", "て", "と"),
+            "F5" to arrayOf("な", "に", "ぬ", "ね", "の"),
+            "F6" to arrayOf("は", "ひ", "ふ", "へ", "ほ"),
+            "F7" to arrayOf("ま", "み", "む", "め", "も"),
+            "F8" to arrayOf("や", "（", "ゆ", "）", "よ"),
+            "F9" to arrayOf("ら", "り", "る", "れ", "ろ"),
+            "F0" to arrayOf("わ", "を", "ん", "ー", "〜")
+        )
+
+        val dakutenMap = mapOf(
+            'か' to 'が', 'き' to 'ぎ', 'く' to 'ぐ', 'け' to 'げ', 'こ' to 'ご',
+            'さ' to 'ざ', 'し' to 'じ', 'す' to 'ず', 'せ' to 'ぜ', 'そ' to 'ぞ',
+            'た' to 'だ', 'ち' to 'ぢ', 'つ' to 'づ', 'て' to 'で', 'と' to 'ど',
+            'は' to 'ば', 'ひ' to 'び', 'ふ' to 'ぶ', 'へ' to 'べ', 'ほ' to 'ぼ'
+        )
+
+        val handakutenMap = mapOf(
+            'は' to 'ぱ', 'ひ' to 'ぴ', 'ふ' to 'ぷ', 'へ' to 'ぺ', 'ほ' to 'ぽ'
+        )
+
+        val smallKanaMap = mapOf(
+            'あ' to 'ぁ', 'い' to 'ぃ', 'う' to 'ぅ', 'え' to 'ぇ', 'お' to 'ぉ',
+            'や' to 'ゃ', 'ゆ' to 'ゅ', 'よ' to 'ょ', 'つ' to 'っ', 'わ' to 'ゎ'
+        )
     }
 }

@@ -2,6 +2,53 @@ package com.toraonsei.format
 
 class LocalFormatter {
 
+    fun formatWithContext(
+        input: String,
+        beforeCursor: String,
+        afterCursor: String,
+        appHistory: String,
+        dictionaryWords: Set<String>
+    ): String {
+        val cleaned = normalize(removeFillers(input))
+        if (cleaned.isBlank()) return ""
+
+        val context = buildString {
+            append(beforeCursor.takeLast(120))
+            append(' ')
+            append(appHistory.takeLast(180))
+            append(' ')
+            append(afterCursor.take(60))
+        }
+
+        val segments = splitSegments(cleaned).ifEmpty { listOf(cleaned) }
+        var merged = segments.joinToString("、") { it.trim() }
+        merged = merged.replace(Regex("、+"), "、").trim('、', ' ')
+
+        // 文脈に辞書語が出る場合は、語を崩しにくいよう元文を優先
+        val hasDomainTerm = dictionaryWords.any { it.isNotBlank() && context.contains(it) && cleaned.contains(it) }
+        if (hasDomainTerm) {
+            merged = cleaned
+        }
+
+        val politeContext = politeRegex.containsMatchIn(context)
+        if (politeContext) {
+            merged = toPoliteTone(merged)
+        }
+
+        merged = when {
+            questionRegex.containsMatchIn(merged) -> merged.trimEnd('。', '！', '？', '!', '?') + "？"
+            emphasisRegex.containsMatchIn(merged) -> merged.trimEnd('。', '？', '?') + "！"
+            politeContext -> merged.trimEnd('！', '？', '!', '?') + "。"
+            else -> merged
+        }
+
+        if (afterCursor.startsWith("。") || afterCursor.startsWith("、") || afterCursor.startsWith("！") || afterCursor.startsWith("？")) {
+            merged = merged.trimEnd('。', '、', '！', '？')
+        }
+
+        return merged
+    }
+
     fun toBulletPoints(input: String, dictionaryWords: Set<String>): String {
         val cleaned = normalize(removeFillers(input))
         if (cleaned.isBlank()) return ""
@@ -65,6 +112,15 @@ class LocalFormatter {
 
     private fun fallbackCasual(text: String): String {
         return text.replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun toPoliteTone(text: String): String {
+        var out = text
+        out = out.replace(Regex("だよ$"), "ですよ")
+        out = out.replace(Regex("だね$"), "ですね")
+        out = out.replace(Regex("だ$"), "です")
+        out = out.replace(Regex("する$"), "します")
+        return out
     }
 
     private fun decideEnding(text: String): String {
@@ -155,5 +211,6 @@ class LocalFormatter {
         val constraintRegex = Regex("(無理|できない|不可|厳しい)")
         val questionRegex = Regex("(どう|いつ|どこ|何|なに|ですか|ますか|かな|\\?)")
         val emphasisRegex = Regex("(ありがとう|了解|助かる|お願いします|よろしく)")
+        val politeRegex = Regex("(です|ます|ください|お願|失礼|でしょう)")
     }
 }

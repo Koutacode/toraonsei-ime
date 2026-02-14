@@ -38,42 +38,36 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/candidateScroll" />
 
-    <Button
-        android:id="@+id/micButton"
-        android:layout_width="108dp"
-        android:layout_height="64dp"
+    <LinearLayout
+        android:id="@+id/recordRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
-        android:text="押して録音"
-        android:textAllCaps="false"
-        android:textSize="15sp"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/candidateScroll" />
-
-    <Button
-        android:id="@+id/modeShortButton"
-        android:layout_width="0dp"
-        android:layout_height="52dp"
-        android:layout_marginStart="12dp"
-        android:text="短文"
-        android:textAllCaps="false"
-        android:textSize="16sp"
-        app:layout_constraintBottom_toBottomOf="@+id/micButton"
-        app:layout_constraintEnd_toStartOf="@+id/modeLongButton"
-        app:layout_constraintStart_toEndOf="@+id/micButton"
-        app:layout_constraintTop_toTopOf="@+id/micButton" />
-
-    <Button
-        android:id="@+id/modeLongButton"
-        android:layout_width="0dp"
-        android:layout_height="52dp"
-        android:layout_marginStart="12dp"
-        android:text="長文"
-        android:textAllCaps="false"
-        android:textSize="16sp"
-        app:layout_constraintBottom_toBottomOf="@+id/modeShortButton"
+        android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@+id/modeShortButton"
-        app:layout_constraintTop_toTopOf="@+id/modeShortButton" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/candidateScroll">
+
+        <Button
+            android:id="@+id/micButton"
+            android:layout_width="0dp"
+            android:layout_height="92dp"
+            android:layout_weight="2"
+            android:text="録音開始"
+            android:textAllCaps="false"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/formatContextButton"
+            android:layout_width="0dp"
+            android:layout_height="92dp"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:text="文面整形"
+            android:textAllCaps="false"
+            android:textSize="18sp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/statusText"
@@ -82,10 +76,49 @@
         android:layout_marginTop="8dp"
         android:text="待機中"
         android:textColor="#D1D5DB"
-        android:textSize="15sp"
+        android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/micButton" />
+        app:layout_constraintTop_toBottomOf="@+id/recordRow" />
+
+    <LinearLayout
+        android:id="@+id/keyControlRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/statusText">
+
+        <Button
+            android:id="@+id/keyModeTextButton"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="かなキー"
+            android:textAllCaps="false"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/keyModeTenButton"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="フリック"
+            android:textAllCaps="false"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/keyBackspaceButton"
+            android:layout_width="110dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="8dp"
+            android:text="⌫"
+            android:textAllCaps="false"
+            android:textSize="24sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/manualInputPanel"
@@ -97,91 +130,41 @@
         android:padding="10dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/statusText">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/keyModeTextButton"
-                android:layout_width="0dp"
-                android:layout_height="46dp"
-                android:layout_weight="1"
-                android:text="キー入力"
-                android:textAllCaps="false"
-                android:textSize="15sp" />
-
-            <Button
-                android:id="@+id/keyModeTenButton"
-                android:layout_width="0dp"
-                android:layout_height="46dp"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="テンキー"
-                android:textAllCaps="false"
-                android:textSize="15sp" />
-
-            <Button
-                android:id="@+id/keyBackspaceButton"
-                android:layout_width="96dp"
-                android:layout_height="46dp"
-                android:layout_marginStart="8dp"
-                android:text="⌫"
-                android:textAllCaps="false"
-                android:textSize="18sp" />
-        </LinearLayout>
+        app:layout_constraintTop_toBottomOf="@+id/keyControlRow">
 
         <LinearLayout
             android:id="@+id/textKeyboardPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:visibility="gone">
 
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:tag="q" android:text="q" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="w" android:text="w" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="e" android:text="e" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="r" android:text="r" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="t" android:text="t" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="y" android:text="y" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="u" android:text="u" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="i" android:text="i" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="o" android:text="o" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="p" android:text="p" android:textAllCaps="false" android:textSize="16sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_weight="1" android:tag="あ" android:text="あ" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="か" android:text="か" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="さ" android:text="さ" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="た" android:text="た" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="な" android:text="な" android:textAllCaps="false" android:textSize="20sp" />
             </LinearLayout>
-
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:tag="a" android:text="a" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="s" android:text="s" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="d" android:text="d" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="f" android:text="f" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="g" android:text="g" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="h" android:text="h" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="j" android:text="j" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="k" android:text="k" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="l" android:text="l" android:textAllCaps="false" android:textSize="16sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_weight="1" android:tag="は" android:text="は" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ま" android:text="ま" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="や" android:text="や" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ら" android:text="ら" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="わ" android:text="わ" android:textAllCaps="false" android:textSize="20sp" />
             </LinearLayout>
-
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:tag="z" android:text="z" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="x" android:text="x" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="c" android:text="c" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="v" android:text="v" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="b" android:text="b" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="n" android:text="n" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="m" android:text="m" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="、" android:text="、" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="。" android:text="。" android:textAllCaps="false" android:textSize="16sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_weight="1" android:tag="DAKUTEN" android:text="゛" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="HANDAKUTEN" android:text="゜" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="SMALL" android:text="小" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ん" android:text="ん" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ー" android:text="ー" android:textAllCaps="false" android:textSize="20sp" />
             </LinearLayout>
-
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="2" android:tag="SPACE" android:text="空白" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="?" android:text="?" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="!" android:text="!" android:textAllCaps="false" android:textSize="16sp" />
-                <Button android:layout_width="0dp" android:layout_height="46dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textSize="16sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_weight="1" android:tag="、" android:text="、" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="。" android:text="。" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="2" android:tag="SPACE" android:text="空白" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="60dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textSize="20sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -189,138 +172,36 @@
             android:id="@+id/tenKeyPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:orientation="vertical"
-            android:visibility="gone">
+            android:visibility="visible">
 
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:tag="7" android:text="7" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="8" android:text="8" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="9" android:text="9" android:textAllCaps="false" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_weight="1" android:tag="F1" android:text="あ" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F2" android:text="か" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F3" android:text="さ" android:textAllCaps="false" android:textSize="24sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:tag="4" android:text="4" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="5" android:text="5" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="6" android:text="6" android:textAllCaps="false" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_weight="1" android:tag="F4" android:text="た" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F5" android:text="な" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F6" android:text="は" android:textAllCaps="false" android:textSize="24sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:tag="1" android:text="1" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="2" android:text="2" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="3" android:text="3" android:textAllCaps="false" android:textSize="18sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_weight="1" android:tag="F7" android:text="ま" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F8" android:text="や" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="F9" android:text="ら" android:textAllCaps="false" android:textSize="24sp" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:tag="0" android:text="0" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="." android:text="." android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="-" android:text="-" android:textAllCaps="false" android:textSize="18sp" />
-                <Button android:layout_width="0dp" android:layout_height="52dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textSize="16sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_weight="1" android:tag="F0" android:text="わ" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="、" android:text="、" android:textAllCaps="false" android:textSize="24sp" />
+                <Button android:layout_width="0dp" android:layout_height="74dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="。" android:text="。" android:textAllCaps="false" android:textSize="24sp" />
             </LinearLayout>
-        </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/longPanel"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:background="#0F172A"
-        android:orientation="vertical"
-        android:padding="12dp"
-        android:visibility="gone"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/manualInputPanel">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="プレビュー"
-            android:textColor="#E2E8F0"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/rawPreviewText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="#1E293B"
-            android:minHeight="80dp"
-            android:padding="10dp"
-            android:text=""
-            android:textColor="#F8FAFC"
-            android:textSize="17sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="整形結果"
-            android:textColor="#E2E8F0"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/formattedPreviewText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="#1E293B"
-            android:minHeight="80dp"
-            android:padding="10dp"
-            android:text=""
-            android:textColor="#F8FAFC"
-            android:textSize="17sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/bulletButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="箇条書き(最大10)"
-                android:textAllCaps="false"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/casualButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="送信用"
-                android:textAllCaps="false"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/insertRawButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="そのまま挿入"
-                android:textAllCaps="false"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/insertFormattedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="整形を挿入"
-                android:textAllCaps="false"
-                android:textSize="14sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="horizontal">
+                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="DAKUTEN" android:text="゛" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="HANDAKUTEN" android:text="゜" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="SMALL" android:text="小" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="2" android:tag="SPACE" android:text="空白" android:textAllCaps="false" android:textSize="20sp" />
+                <Button android:layout_width="0dp" android:layout_height="68dp" android:layout_marginStart="6dp" android:layout_weight="1" android:tag="ENTER" android:text="改行" android:textAllCaps="false" android:textSize="20sp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
@@ -336,7 +217,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/longPanel">
+        app:layout_constraintTop_toBottomOf="@+id/manualInputPanel">
 
         <TextView
             android:layout_width="match_parent"
