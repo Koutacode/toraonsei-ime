@@ -42,10 +42,11 @@
         android:id="@+id/recordRow"
         android:layout_width="0dp"
         android:layout_height="68dp"
+        android:baselineAligned="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/candidateRow">
@@ -53,8 +54,14 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/clipboardPasteButton"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="54dp"
+            android:layout_weight="0.95"
+            android:ellipsize="end"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:maxLines="1"
+            android:minWidth="0dp"
             android:text="貼付"
             android:textSize="14sp"
             app:strokeColor="@color/key_stroke"
@@ -65,10 +72,13 @@
             style="@style/Widget.Material3.Button.ElevatedButton"
             android:layout_width="0dp"
             android:layout_height="60dp"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1.8"
             android:backgroundTint="@color/primary"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:minWidth="0dp"
             android:text="音声入力"
             android:textColor="@color/on_primary"
             android:textSize="18sp"
@@ -76,24 +86,19 @@
             app:cornerRadius="12dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/sceneModeButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="54dp"
-            android:text="仕事用"
-            android:textSize="14sp"
-            app:strokeColor="@color/key_stroke"
-            app:strokeWidth="1dp" />
-
-        <com.google.android.material.button.MaterialButton
             android:id="@+id/formatContextButton"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="54dp"
+            android:layout_width="0dp"
             android:layout_height="54dp"
-            android:layout_marginStart="4dp"
+            android:layout_weight="0.9"
+            android:ellipsize="end"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:maxLines="1"
+            android:minWidth="0dp"
             android:padding="0dp"
             android:text="変"
-            android:textSize="16sp"
+            android:textSize="14sp"
             app:strokeColor="@color/key_stroke"
             app:strokeWidth="1dp" />
     </LinearLayout>
@@ -109,16 +114,54 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/recordRow" />
 
+    <LinearLayout
+        android:id="@+id/imeHeightControlRow"
+        android:layout_width="0dp"
+        android:layout_height="36dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/statusText">
+
+        <TextView
+            android:id="@+id/imeHeightLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="高さ"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <SeekBar
+            android:id="@+id/imeHeightSeekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:max="47"
+            android:progress="22" />
+
+        <TextView
+            android:id="@+id/imeHeightValueText"
+            android:layout_width="44dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:text="100%"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
     <!-- 3. フリックキーボード (常時表示) - 枠組みと文字サイズを強化 -->
     <LinearLayout
         android:id="@+id/manualInputPanel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/statusText">
+        app:layout_constraintTop_toBottomOf="@+id/imeHeightControlRow">
 
         <LinearLayout
             android:id="@+id/tenKeyPanel"
@@ -131,6 +174,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:weightSum="5.6">
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="LANG_PICKER" android:text="切替" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="14sp"/>
@@ -144,6 +188,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:weightSum="5.6">
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CURSOR_LEFT" android:text="‹" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="20sp"/>
@@ -157,19 +202,21 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:weightSum="5.6">
                 <com.google.android.material.button.MaterialButton android:id="@+id/inputModeButton" android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="MODE_CYCLE" android:text="あa1" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="14sp"/>
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F7" android:text="ま" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F8" android:text="や" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1.2" android:tag="F9" android:text="ら" android:backgroundTint="@color/key_bg" android:textColor="@color/text_primary" android:textSize="24sp" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp"/>
-                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CONVERT" android:text="変換" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="16sp"/>
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="CONVERT" android:text="整形" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="16sp"/>
             </LinearLayout>
 
             <!-- 4段目 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:weightSum="5.6">
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="68dp" android:layout_weight="1" android:tag="SPACE" android:text="空白" android:backgroundTint="@color/key_action_bg" android:textColor="@color/text_primary" android:layout_margin="2dp" style="@style/Widget.Material3.Button.OutlinedButton" app:strokeColor="@color/key_stroke" app:strokeWidth="1dp" app:cornerRadius="8dp" android:textSize="18sp"/>

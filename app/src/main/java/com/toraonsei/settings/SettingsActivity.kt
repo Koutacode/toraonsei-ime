@@ -24,7 +24,6 @@ import androidx.lifecycle.lifecycleScope
 import com.toraonsei.R
 import com.toraonsei.dict.DictionaryActivity
 import com.toraonsei.dict.DictionaryMaintenanceActivity
-import com.toraonsei.engine.UsageSceneMode
 import com.toraonsei.format.EnglishStyle
 import com.toraonsei.format.FormatStrength
 import com.toraonsei.format.LocalLlmSupport
@@ -86,7 +85,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var openDictionaryMaintenanceButton: Button
     private lateinit var importAsrModelButton: Button
     private lateinit var importLlmModelButton: Button
-    private lateinit var usageSceneModeSpinner: Spinner
     private lateinit var formatStrengthSpinner: Spinner
     private lateinit var englishStyleSpinner: Spinner
     private lateinit var recognitionNoiseFilterSwitch: SwitchCompat
@@ -108,11 +106,6 @@ class SettingsActivity : AppCompatActivity() {
         EnglishStyle.NATURAL.configValue,
         EnglishStyle.CASUAL.configValue,
         EnglishStyle.FORMAL.configValue
-    )
-    private val usageSceneLabels = listOf("メッセージ用", "仕事用")
-    private val usageSceneValues = listOf(
-        UsageSceneMode.MESSAGE.configValue,
-        UsageSceneMode.WORK.configValue
     )
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -221,7 +214,6 @@ class SettingsActivity : AppCompatActivity() {
         openDictionaryMaintenanceButton = findViewById(R.id.openDictionaryMaintenanceButton)
         importAsrModelButton = findViewById(R.id.importAsrModelButton)
         importLlmModelButton = findViewById(R.id.importLlmModelButton)
-        usageSceneModeSpinner = findViewById(R.id.usageSceneModeSpinner)
         formatStrengthSpinner = findViewById(R.id.formatStrengthSpinner)
         englishStyleSpinner = findViewById(R.id.englishStyleSpinner)
         recognitionNoiseFilterSwitch = findViewById(R.id.recognitionNoiseFilterSwitch)
@@ -372,7 +364,6 @@ class SettingsActivity : AppCompatActivity() {
         openDictionaryMaintenanceButton.isEnabled = interactive
         importAsrModelButton.isEnabled = false
         importLlmModelButton.isEnabled = interactive
-        usageSceneModeSpinner.isEnabled = interactive
         formatStrengthSpinner.isEnabled = interactive
         englishStyleSpinner.isEnabled = interactive
         recognitionNoiseFilterSwitch.isEnabled = interactive
@@ -598,13 +589,6 @@ class SettingsActivity : AppCompatActivity() {
         ).also { adapter ->
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
-        usageSceneModeSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            usageSceneLabels
-        ).also { adapter ->
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
         englishStyleSpinner.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_item,
@@ -620,19 +604,6 @@ class SettingsActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     configRepository.setFormatStrength(value)
                     toast("文章整形の強さを保存しました: ${formatStrengthLabels[position]}")
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
-
-        usageSceneModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                if (suppressPreferenceEvents || !unlocked) return
-                val value = usageSceneValues.getOrNull(position) ?: return
-                lifecycleScope.launch {
-                    configRepository.setUsageSceneMode(value)
-                    toast("既定シーンを保存しました: ${usageSceneLabels[position]}")
                 }
             }
 
@@ -833,12 +804,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateSpinnerSelections(config: AppConfigRepository.AppConfig) {
         suppressPreferenceEvents = true
-        val sceneIndex = usageSceneValues.indexOf(config.usageSceneMode).let { if (it >= 0) it else 0 }
         val strengthIndex = formatStrengthValues.indexOf(config.formatStrength).let { if (it >= 0) it else 1 }
         val englishIndex = englishStyleValues.indexOf(config.englishStyle).let { if (it >= 0) it else 0 }
-        if (usageSceneModeSpinner.selectedItemPosition != sceneIndex) {
-            usageSceneModeSpinner.setSelection(sceneIndex, false)
-        }
         if (formatStrengthSpinner.selectedItemPosition != strengthIndex) {
             formatStrengthSpinner.setSelection(strengthIndex, false)
         }

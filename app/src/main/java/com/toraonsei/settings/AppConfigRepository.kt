@@ -4,6 +4,7 @@ import android.content.Context
 import com.toraonsei.engine.UsageSceneMode
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ class AppConfigRepository(private val context: Context) {
         booleanPreferencesKey("recognition_noise_filter_enabled")
     private val asrModelTreeUriKey = stringPreferencesKey("asr_model_tree_uri")
     private val llmModelUriKey = stringPreferencesKey("llm_model_uri")
+    private val imeHeightScaleKey = floatPreferencesKey("ime_height_scale")
 
     val configFlow: Flow<AppConfig> = context.appConfigDataStore.data.map { prefs ->
         AppConfig(
@@ -32,7 +34,8 @@ class AppConfigRepository(private val context: Context) {
             englishStyle = normalizeEnglishStyle(prefs[englishStyleKey].orEmpty()),
             recognitionNoiseFilterEnabled = prefs[recognitionNoiseFilterEnabledKey] ?: true,
             asrModelTreeUri = prefs[asrModelTreeUriKey].orEmpty(),
-            llmModelUri = prefs[llmModelUriKey].orEmpty()
+            llmModelUri = prefs[llmModelUriKey].orEmpty(),
+            imeHeightScale = normalizeImeHeightScale(prefs[imeHeightScaleKey] ?: defaultImeHeightScale)
         )
     }
 
@@ -91,6 +94,12 @@ class AppConfigRepository(private val context: Context) {
         }
     }
 
+    suspend fun setImeHeightScale(value: Float) {
+        context.appConfigDataStore.edit { prefs ->
+            prefs[imeHeightScaleKey] = normalizeImeHeightScale(value)
+        }
+    }
+
     data class AppConfig(
         val unlocked: Boolean,
         val usageSceneMode: String,
@@ -98,13 +107,15 @@ class AppConfigRepository(private val context: Context) {
         val englishStyle: String,
         val recognitionNoiseFilterEnabled: Boolean,
         val asrModelTreeUri: String,
-        val llmModelUri: String
+        val llmModelUri: String,
+        val imeHeightScale: Float
     )
 
     companion object {
         const val requiredPasscode = "0623"
         private const val defaultFormatStrength = "normal"
         private const val defaultEnglishStyle = "natural"
+        private const val defaultImeHeightScale = 1.0f
     }
 
     private fun normalizeFormatStrength(value: String): String {
@@ -121,7 +132,13 @@ class AppConfigRepository(private val context: Context) {
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun normalizeUsageSceneMode(value: String): String {
-        return UsageSceneMode.fromConfig(value.trim().lowercase(Locale.US)).configValue
+        return UsageSceneMode.MESSAGE.configValue
+    }
+
+    private fun normalizeImeHeightScale(value: Float): Float {
+        if (!value.isFinite()) return defaultImeHeightScale
+        return value.coerceIn(0.78f, 1.25f)
     }
 }

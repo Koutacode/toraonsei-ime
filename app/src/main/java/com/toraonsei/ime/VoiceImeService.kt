@@ -22,11 +22,13 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -37,8 +39,10 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.PopupWindow
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -59,6 +63,7 @@ import com.toraonsei.settings.SettingsActivity
 import com.toraonsei.speech.RecognitionTextCleaner
 import com.toraonsei.speech.SpeechController
 import com.toraonsei.suggest.SuggestionEngine
+import com.toraonsei.translate.OnDeviceEnglishTranslator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,6 +72,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.ArrayDeque
 import kotlin.math.abs
@@ -84,6 +91,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private lateinit var localDictionary: LocalKanaKanjiDictionary
     private lateinit var speechController: SpeechController
     private lateinit var localLlmInferenceEngine: LocalLlmInferenceEngine
+    private lateinit var onDeviceEnglishTranslator: OnDeviceEnglishTranslator
 
     private val suggestionEngine = SuggestionEngine()
     private val formatter = LocalFormatter()
@@ -96,6 +104,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var appUnlocked = false
     private var recordingForegroundActive = false
     private var restartListeningJob: Job? = null
+    private var finalizeVoiceCommitJob: Job? = null
+    private var imeHeightSaveJob: Job? = null
+    private var backspaceRepeatJob: Job? = null
+    private var backspaceRepeatActive = false
     private var formatJob: Job? = null
     private var inputMode: InputMode = InputMode.KANA
     private var alphaUppercase = false
@@ -104,15 +116,21 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var runtimeFormatStrength: FormatStrength = FormatStrength.NORMAL
     private var runtimeEnglishStyle: EnglishStyle = EnglishStyle.NATURAL
     private var runtimeRecognitionNoiseFilterEnabled: Boolean = true
+    private var runtimeImeHeightScale: Float = 1.0f
 
     private var lastCommittedText: String = ""
     private var lastSelectedCandidate: String = ""
     private var lastVoiceCommittedText: String = ""
     private var lastRecognitionAlternatives: List<String> = emptyList()
     private var lastStatusMessage: String = ""
+    private var voiceFinalizePending = false
+    private val voiceSessionText = StringBuilder()
+    private var lastVoiceSessionSegment = ""
 
     private val appMemory = mutableMapOf<String, AppBuffer>()
+    private val formatActionMutex = Mutex()
     private val flickStartByButtonId = mutableMapOf<Int, Pair<Float, Float>>()
+    private val flickLastDirectionByButtonId = mutableMapOf<Int, FlickDirection>()
     private var flickPopupWindow: PopupWindow? = null
     private var flickPopupText: TextView? = null
     private var toggleTapState: ToggleTapState? = null
@@ -127,9 +145,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var addWordButton: Button? = null
     private var clipboardPasteButton: Button? = null
     private var micButton: Button? = null
-    private var sceneModeButton: Button? = null
     private var formatContextButton: Button? = null
     private var statusText: TextView? = null
+    private var imeHeightLabel: TextView? = null
+    private var imeHeightSeekBar: SeekBar? = null
+    private var imeHeightValueText: TextView? = null
     private var inputModeButton: Button? = null
     private var smallActionButton: Button? = null
     private var keyBackspaceButton: Button? = null
@@ -150,6 +170,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var candidateChipTextSizeSp: Float = 13f
     private var flickKeyTextSizeSp: Float = 12.5f
     private var flickKeyPaddingPx: Int = 0
+    private var flickDeadZonePx: Int = 0
+    private var isImeHeightSeekBarTracking = false
 
     override fun onCreate() {
         super.onCreate()
@@ -158,7 +180,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         localDictionary = LocalKanaKanjiDictionary(this)
         speechController = SpeechController(this, this)
         localLlmInferenceEngine = LocalLlmInferenceEngine(this)
+        onDeviceEnglishTranslator = OnDeviceEnglishTranslator()
         clipboardManager = getSystemService(ClipboardManager::class.java)
+        serviceScope.launch(Dispatchers.IO) {
+            prewarmOnDeviceEnglishModel()
+        }
 
         serviceScope.launch {
             appConfigRepository.configFlow.collectLatest { config ->
@@ -168,7 +194,12 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                 runtimeFormatStrength = FormatStrength.fromConfig(config.formatStrength)
                 runtimeEnglishStyle = EnglishStyle.fromConfig(config.englishStyle)
                 runtimeRecognitionNoiseFilterEnabled = config.recognitionNoiseFilterEnabled
+                runtimeImeHeightScale = config.imeHeightScale
                 updateUsageSceneModeUi()
+                if (!isImeHeightSeekBarTracking) {
+                    updateImeHeightSeekBarUi()
+                }
+                rootView?.post { applyImeSizingPolicy() }
                 
                 if (appUnlocked && !wasUnlocked) {
                     // ロック解除時: 一旦クリアして、次にキーボードが出る時に確実に新UIになるようにする
@@ -257,7 +288,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         updateEnterKeyUi(info)
         applyImeSizingPolicy()
         updateMicState()
-        setStatus(if (recordingRequested) "録音中..." else "待機中")
+        setStatus(if (recordingRequested) "録音中: 話し終えたらボタンで終了" else "待機中")
         refreshSuggestions()
     }
 
@@ -306,23 +337,33 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     override fun onDestroy() {
         stopRecordingIfNeeded(forceCancel = true)
         restartListeningJob?.cancel()
+        finalizeVoiceCommitJob?.cancel()
+        imeHeightSaveJob?.cancel()
+        backspaceRepeatActive = false
+        backspaceRepeatJob?.cancel()
         formatJob?.cancel()
         dismissFlickPopup()
         speechController.destroy()
         localLlmInferenceEngine.release()
+        onDeviceEnglishTranslator.close()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onReady() {
         isRecognizerActive = true
-        setStatus("録音中...")
+        setStatus("録音中: 話し終えたらボタンで終了")
     }
 
     override fun onPartial(text: String) {
         val cleaned = normalizeRecognitionText(text, partial = true)
         if (cleaned.isNotBlank()) {
-            setStatus("認識中(途中結果)")
+            if (recordingRequested || voiceFinalizePending) {
+                val length = buildVoiceSessionPreviewText(cleaned).length
+                setStatus("認識中... (${length}文字)")
+            } else {
+                setStatus("認識中(途中結果)")
+            }
         }
     }
 
@@ -342,57 +383,20 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             return
         }
 
-        // 1. まずは認識結果を即座にコミット（ユーザーを待たせない）
-        commitAndTrack(corrected)
-        lastVoiceCommittedText = corrected
-        setStatus("入力しました")
-
-        // 2. バックグラウンドで「スマート確定（整形）」を試みる
-        serviceScope.launch {
-            try {
-                val before = getCurrentBeforeCursor()
-                val after = getCurrentAfterCursor()
-                val pkg = currentPackageName()
-                val history = appMemory[pkg]?.history?.toString().orEmpty()
-                val dictionaryWordSet = dictionaryWordSet()
-
-                val formatted = localFormat(
-                    action = FormatAction.CONTEXT,
-                    input = corrected,
-                    before = before,
-                    after = after,
-                    history = history,
-                    dictionaryWordSet = dictionaryWordSet
-                )
-
-                if (formatted.isNotBlank() && formatted != corrected) {
-                    // 整形結果が異なる場合のみ、直前の入力を差し替える
-                    replaceLastVoiceCommit(corrected, formatted)
-                    setStatus("スマート確定しました (${usageSceneMode.label})")
-                }
-            } catch (e: Exception) {
-                // 整形エラー時は何もしない（元のテキストは既にコミット済み）
-                setStatus("入力完了 (整形スキップ)")
-            }
+        if (!recordingRequested && !voiceFinalizePending) {
+            return
         }
-    }
-
-    private fun replaceLastVoiceCommit(original: String, formatted: String) {
-        val ic = currentInputConnection ?: return
-        // 直前の入力がまだカーソル前にあるか確認（ユーザーが既に別の入力を始めていないか）
-        val before = ic.getTextBeforeCursor(original.length + 1, 0)?.toString().orEmpty()
-        if (before.endsWith(original)) {
-            ic.deleteSurroundingText(original.length, 0)
-            ic.commitText(formatted, 1)
-            rememberCommittedText(formatted)
-            lastVoiceCommittedText = formatted
-        }
+        appendVoiceSessionSegment(corrected)
+        setStatus("録音中... (${voiceSessionText.length}文字)")
     }
 
     override fun onError(message: String) {
         isRecognizerActive = false
         if (recordingRequested) {
             setStatus("録音継続中: 再開します")
+        } else if (voiceFinalizePending && isBenignStopError(message)) {
+            // 手動停止直後の NO_MATCH / TIMEOUT は想定内。エラー表示にせず反映処理を継続する。
+            setStatus("録音停止: 反映中...")
         } else if (message == "音声入力エラー(クライアント)") {
             setStatus("待機中")
         } else {
@@ -405,9 +409,54 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         isRecognizerActive = false
         if (recordingRequested) {
             scheduleRestartListening()
+        } else if (voiceFinalizePending) {
+            finalizeVoiceSessionCommit()
         } else {
             updateMicState()
         }
+    }
+
+    private fun appendVoiceSessionSegment(segment: String) {
+        val normalized = normalizeVoiceSegmentText(segment)
+        if (normalized.isBlank()) return
+        if (normalized == lastVoiceSessionSegment) return
+
+        val current = normalizeVoiceSegmentText(voiceSessionText.toString())
+        val merged = mergeVoiceSessionText(
+            current = current,
+            incoming = normalized
+        )
+        if (merged == current) {
+            lastVoiceSessionSegment = normalized
+            return
+        }
+
+        voiceSessionText.setLength(0)
+        voiceSessionText.append(merged)
+        lastVoiceSessionSegment = normalized
+    }
+
+    private fun buildVoiceSessionPreviewText(tail: String = ""): String {
+        val base = normalizeVoiceSegmentText(voiceSessionText.toString())
+        val extra = normalizeVoiceSegmentText(tail)
+        if (base.isBlank()) return extra
+        if (extra.isBlank()) return base
+        return mergeVoiceSessionText(base, extra)
+    }
+
+    private fun resetVoiceSessionState() {
+        voiceFinalizePending = false
+        finalizeVoiceCommitJob?.cancel()
+        voiceSessionText.setLength(0)
+        lastVoiceSessionSegment = ""
+    }
+
+    private fun normalizeVoiceSegmentText(text: String): String {
+        return VoiceSessionTextUtils.normalizeSegment(text)
+    }
+
+    private fun mergeVoiceSessionText(current: String, incoming: String): String {
+        return VoiceSessionTextUtils.merge(current, incoming)
     }
 
     private fun normalizeRecognitionText(text: String, partial: Boolean): String {
@@ -430,9 +479,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         addWordButton = view.findViewById(R.id.addWordButton)
         clipboardPasteButton = view.findViewById(R.id.clipboardPasteButton)
         micButton = view.findViewById(R.id.micButton)
-        sceneModeButton = view.findViewById(R.id.sceneModeButton)
         formatContextButton = view.findViewById(R.id.formatContextButton)
         statusText = view.findViewById(R.id.statusText)
+        imeHeightLabel = view.findViewById(R.id.imeHeightLabel)
+        imeHeightSeekBar = view.findViewById(R.id.imeHeightSeekBar)
+        imeHeightValueText = view.findViewById(R.id.imeHeightValueText)
         inputModeButton = view.findViewById(R.id.inputModeButton)
         keyBackspaceButton = view.findViewById(R.id.keyBackspaceButton)
         flickGuideText = view.findViewById(R.id.flickGuideText)
@@ -454,9 +505,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         addWordButton = null
         clipboardPasteButton = null
         micButton = null
-        sceneModeButton = null
         formatContextButton = null
         statusText = null
+        imeHeightLabel = null
+        imeHeightSeekBar = null
+        imeHeightValueText = null
         inputModeButton = null
         smallActionButton = null
         keyBackspaceButton = null
@@ -468,6 +521,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         addReadingEdit = null
         saveWordButton = null
         cancelWordButton = null
+        flickStartByButtonId.clear()
+        flickLastDirectionByButtonId.clear()
+        backspaceRepeatActive = false
+        backspaceRepeatJob?.cancel()
+        isImeHeightSeekBarTracking = false
     }
 
     private fun openSettingsForUnlock() {
@@ -520,13 +578,6 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                 startRecordingIfAllowed()
             }
         }
-        sceneModeButton?.setOnClickListener {
-            cycleUsageSceneMode()
-        }
-        sceneModeButton?.setOnLongClickListener {
-            cycleUsageSceneMode()
-            true
-        }
 
         formatContextButton?.setOnClickListener {
             showFormatActionMenu(it)
@@ -536,9 +587,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             true
         }
 
-        keyBackspaceButton?.setOnClickListener {
-            handleBackspace()
-        }
+        setupBackspaceRepeatTouch()
 
         addReadingEdit?.doAfterTextChanged { editable ->
             saveWordButton?.isEnabled = !editable.isNullOrBlank()
@@ -581,8 +630,159 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         smallActionButton?.maxLines = 2
         smallActionButton?.includeFontPadding = false
         smallActionButton?.gravity = Gravity.CENTER
+        imeHeightSeekBar?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                runtimeImeHeightScale = imeHeightScaleFromProgress(progress)
+                updateImeHeightValueLabel()
+                applyImeSizingPolicy()
+                schedulePersistImeHeightScale()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                isImeHeightSeekBarTracking = true
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                isImeHeightSeekBarTracking = false
+                schedulePersistImeHeightScale(immediate = true)
+            }
+        })
+        imeHeightLabel?.setOnClickListener {
+            cycleImeHeightPreset()
+        }
+        imeHeightLabel?.setOnLongClickListener {
+            applyImeHeightScalePreset(1.0f)
+            true
+        }
+        imeHeightValueText?.setOnClickListener {
+            cycleImeHeightPreset()
+        }
+        imeHeightValueText?.setOnLongClickListener {
+            applyImeHeightScalePreset(1.0f)
+            true
+        }
         updateUsageSceneModeUi()
         updateFormatButtonUi()
+        updateImeHeightSeekBarUi()
+    }
+
+    private fun updateImeHeightSeekBarUi() {
+        val seekBar = imeHeightSeekBar ?: return
+        val targetProgress = imeHeightProgressFromScale(runtimeImeHeightScale)
+        if (seekBar.progress != targetProgress) {
+            seekBar.progress = targetProgress
+        }
+        updateImeHeightValueLabel()
+    }
+
+    private fun updateImeHeightValueLabel() {
+        val label = ((runtimeImeHeightScale * 100f).roundToInt()).coerceIn(78, 125)
+        imeHeightValueText?.text = "$label%"
+    }
+
+    private fun imeHeightScaleFromProgress(progress: Int): Float {
+        return ImeHeightScaleUtils.scaleFromProgress(progress)
+    }
+
+    private fun imeHeightProgressFromScale(scale: Float): Int {
+        return ImeHeightScaleUtils.progressFromScale(scale)
+    }
+
+    private fun schedulePersistImeHeightScale(immediate: Boolean = false) {
+        imeHeightSaveJob?.cancel()
+        imeHeightSaveJob = serviceScope.launch {
+            if (!immediate) {
+                delay(120L)
+            }
+            appConfigRepository.setImeHeightScale(runtimeImeHeightScale)
+            if (immediate) {
+                val label = ((runtimeImeHeightScale * 100f).roundToInt()).coerceIn(78, 125)
+                setStatus("キーボード高さ: ${label}%")
+            }
+        }
+    }
+
+    private fun cycleImeHeightPreset() {
+        if (ImeHeightScaleUtils.presets.isEmpty()) return
+        val current = runtimeImeHeightScale
+        var nearestIndex = 0
+        var nearestDiff = Float.MAX_VALUE
+        ImeHeightScaleUtils.presets.forEachIndexed { index, preset ->
+            val diff = abs(preset - current)
+            if (diff < nearestDiff) {
+                nearestDiff = diff
+                nearestIndex = index
+            }
+        }
+        val nextIndex = (nearestIndex + 1) % ImeHeightScaleUtils.presets.size
+        applyImeHeightScalePreset(ImeHeightScaleUtils.presets[nextIndex])
+    }
+
+    private fun applyImeHeightScalePreset(scale: Float) {
+        runtimeImeHeightScale = scale.coerceIn(ImeHeightScaleUtils.minScale, ImeHeightScaleUtils.maxScale)
+        updateImeHeightSeekBarUi()
+        applyImeSizingPolicy()
+        schedulePersistImeHeightScale(immediate = true)
+    }
+
+    private fun setupBackspaceRepeatTouch() {
+        val button = keyBackspaceButton ?: return
+        val cancelSlopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+            .coerceAtLeast(dp(12).toFloat())
+        button.setOnClickListener(null)
+        button.setOnLongClickListener(null)
+        button.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    performKeyboardHaptic(view)
+                    handleBackspace()
+                    backspaceRepeatActive = true
+                    backspaceRepeatJob?.cancel()
+                    backspaceRepeatJob = serviceScope.launch {
+                        delay(backspaceRepeatInitialDelayMs)
+                        while (backspaceRepeatActive) {
+                            handleBackspace()
+                            delay(backspaceRepeatIntervalMs)
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isTouchInsideView(view, event, cancelSlopPx)) {
+                        backspaceRepeatActive = false
+                        backspaceRepeatJob?.cancel()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    backspaceRepeatActive = false
+                    backspaceRepeatJob?.cancel()
+                    if (event.actionMasked == MotionEvent.ACTION_UP) {
+                        view.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun isTouchInsideView(view: View, event: MotionEvent, slopPx: Float = 0f): Boolean {
+        val x = event.x
+        val y = event.y
+        return x >= -slopPx &&
+            x <= view.width.toFloat() + slopPx &&
+            y >= -slopPx &&
+            y <= view.height.toFloat() + slopPx
+    }
+
+    private fun performKeyboardHaptic(target: View? = null) {
+        val anchor = target ?: rootView ?: return
+        runCatching {
+            anchor.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        }
     }
 
     private fun applyManualKeyboardMode() {
@@ -623,6 +823,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             flickStartByButtonId[button.id] = event.x to event.y
+                            flickLastDirectionByButtonId[button.id] = FlickDirection.CENTER
                             showFlickGuide(keyTag, FlickDirection.CENTER)
                             showFlickPopup(button, keyTag, FlickDirection.CENTER)
                             true
@@ -636,13 +837,18 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                                 endX = event.x,
                                 endY = event.y
                             )
-                            showFlickGuide(keyTag, direction)
-                            showFlickPopup(button, keyTag, direction)
+                            val previous = flickLastDirectionByButtonId[button.id]
+                            if (previous != direction) {
+                                flickLastDirectionByButtonId[button.id] = direction
+                                showFlickGuide(keyTag, direction)
+                                showFlickPopup(button, keyTag, direction)
+                            }
                             true
                         }
 
                         MotionEvent.ACTION_UP -> {
                             val start = flickStartByButtonId.remove(button.id) ?: (event.x to event.y)
+                            flickLastDirectionByButtonId.remove(button.id)
                             val direction = resolveFlickDirection(
                                 startX = start.first,
                                 startY = start.second,
@@ -660,6 +866,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                                     commitTextDirect(output)
                                 }
                             }
+                            performKeyboardHaptic(button)
                             hideFlickGuide()
                             dismissFlickPopup()
                             true
@@ -667,6 +874,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
                         MotionEvent.ACTION_CANCEL -> {
                             flickStartByButtonId.remove(button.id)
+                            flickLastDirectionByButtonId.remove(button.id)
                             hideFlickGuide()
                             dismissFlickPopup()
                             true
@@ -718,7 +926,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     ): FlickDirection {
         val dx = endX - startX
         val dy = endY - startY
-        if (abs(dx) < dp(18) && abs(dy) < dp(18)) {
+        val deadZonePx = flickDeadZonePx.takeIf { it > 0 } ?: dp(14)
+        if (abs(dx) < deadZonePx && abs(dy) < deadZonePx) {
             return FlickDirection.CENTER
         }
         if (abs(dx) > abs(dy)) {
@@ -740,6 +949,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun handleTaggedKeyInput(tag: String) {
         if (!ensureUnlockedForInput()) return
+        if (tag != "BACKSPACE") {
+            performKeyboardHaptic()
+        }
         clearToggleTapState()
         if (tag != "CONVERT") {
             clearConversionState()
@@ -748,7 +960,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "SPACE" -> commitTextDirect(" ")
             "ENTER" -> performEditorActionOrEnter()
             "BACKSPACE" -> handleBackspace()
-            "CONVERT" -> convertReadingToCandidate()
+            // 「かな変換」は使わないため、変換キーは現在選択中の整形（変/英）を適用する。
+            "CONVERT" -> applyFormatAction(formatAction)
             "CURSOR_LEFT" -> {
                 if (!moveCursorInAddWordEditor(-1)) {
                     sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -952,20 +1165,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         updateUsageSceneModeUi()
     }
 
-    private fun cycleUsageSceneMode() {
-        usageSceneMode = usageSceneMode.next()
-        updateUsageSceneModeUi()
-        serviceScope.launch {
-            appConfigRepository.setUsageSceneMode(usageSceneMode.configValue)
-        }
-        setStatus("利用シーン: ${usageSceneMode.label}")
-    }
-
     private fun updateUsageSceneModeUi() {
-        sceneModeButton?.text = when (usageSceneMode) {
-            UsageSceneMode.WORK -> "仕事用"
-            UsageSceneMode.MESSAGE -> "メッセージ"
-        }
+        // 会話/仕事ボタンは非表示化したため、UI更新は不要。
     }
 
     private fun activeFlickMap(): Map<String, Array<String>> {
@@ -1291,10 +1492,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun startRecordingIfAllowed() {
         if (!ensureUnlockedForInput()) return
-        
+
         // 状態を完全にリセットしてから開始する
         stopRecordingIfNeeded(forceCancel = true)
-        
+
         val granted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.RECORD_AUDIO
@@ -1306,6 +1507,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             return
         }
 
+        resetVoiceSessionState()
         recordingRequested = true
         isRecognizerActive = false
         restartListeningJob?.cancel()
@@ -1313,7 +1515,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         ensureRecordingForeground()
         try {
             startListeningSession()
-            setStatus("録音準備完了...")
+            setStatus("録音中: 話し終えたらボタンで終了")
         } catch (e: Exception) {
             setStatus("録音開始に失敗しました")
             recordingRequested = false
@@ -1322,25 +1524,121 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun stopRecordingIfNeeded(forceCancel: Boolean = false) {
-        if (!recordingRequested && !isRecognizerActive) return
+        if (!recordingRequested && !isRecognizerActive) {
+            if (forceCancel) {
+                resetVoiceSessionState()
+            }
+            return
+        }
         val wasRecordingRequested = recordingRequested
+        val recognizerWasActive = isRecognizerActive
         recordingRequested = false
         restartListeningJob?.cancel()
         if (forceCancel) {
             speechController.cancel()
+            isRecognizerActive = false
+            resetVoiceSessionState()
         } else {
+            voiceFinalizePending = wasRecordingRequested
             speechController.stopListening()
+            if (!recognizerWasActive && voiceFinalizePending) {
+                finalizeVoiceSessionCommit()
+            } else if (voiceFinalizePending) {
+                finalizeVoiceCommitJob?.cancel()
+                finalizeVoiceCommitJob = serviceScope.launch {
+                    delay(850L)
+                    if (!recordingRequested && voiceFinalizePending) {
+                        finalizeVoiceSessionCommit()
+                    }
+                }
+            }
         }
-        isRecognizerActive = false
         updateMicState()
         stopRecordingForeground()
         setStatus(
             when {
                 forceCancel -> "待機中"
-                wasRecordingRequested -> "録音停止"
+                wasRecordingRequested -> "録音停止: 反映中..."
                 else -> "待機中"
             }
         )
+    }
+
+    private fun finalizeVoiceSessionCommit() {
+        if (!voiceFinalizePending) return
+        voiceFinalizePending = false
+        finalizeVoiceCommitJob?.cancel()
+        val source = voiceSessionText.toString().trim()
+        voiceSessionText.setLength(0)
+        lastVoiceSessionSegment = ""
+        if (source.isBlank()) {
+            setStatus("待機中")
+            return
+        }
+
+        val action = formatAction
+        formatJob?.cancel()
+        formatJob = serviceScope.launch {
+            tryRecoverFormatMutexIfStale()
+            if (!formatActionMutex.tryLock()) {
+                commitAndTrack(source)
+                lastVoiceCommittedText = source
+                setStatus("前の処理中のため原文を貼り付けました")
+                return@launch
+            }
+            val startedAt = System.currentTimeMillis()
+            setStatus("録音結果を処理中...")
+            val slowJob = serviceScope.launch {
+                delay(formatSlowStatusDelayMs)
+                if (!recordingRequested) {
+                    setStatus("処理中...時間がかかっています")
+                }
+            }
+            try {
+                Log.d(
+                    logTag,
+                    "voice-format-start action=${action.name.lowercase()} sourceLen=${source.length}"
+                )
+                val before = getCurrentBeforeCursor()
+                val after = getCurrentAfterCursor()
+                val pkg = currentPackageName()
+                val history = appMemory[pkg]?.history?.toString().orEmpty()
+                val dictionaryWordSet = dictionaryWordSet()
+                val localResult = localFormat(
+                    action = action,
+                    input = source,
+                    before = before,
+                    after = after,
+                    history = history,
+                    dictionaryWordSet = dictionaryWordSet
+                )
+                val localFormatted = localResult.text
+                val formatted = when (action) {
+                    FormatAction.CONTEXT -> enforceJapanesePrimaryContextOutput(
+                        source = source,
+                        localFormatted = localFormatted,
+                        candidate = localFormatted
+                    )
+                    FormatAction.ENGLISH -> localFormatted
+                }.trim().ifBlank { source }
+
+                commitAndTrack(formatted)
+                lastVoiceCommittedText = formatted
+                setStatus(
+                    when (action) {
+                        FormatAction.CONTEXT -> "録音結果を整形して貼り付けました"
+                        FormatAction.ENGLISH -> "録音結果を英語翻訳して貼り付けました"
+                    } + buildFormatStatusSuffix(localResult.note)
+                )
+            } finally {
+                slowJob.cancel()
+                runCatching { formatActionMutex.unlock() }
+                Log.d(
+                    logTag,
+                    "voice-format-finish action=${action.name.lowercase()} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                )
+            }
+        }
     }
 
     private fun scheduleRestartListening() {
@@ -1400,7 +1698,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun updateMicState() {
         val button = micButton ?: return
         if (recordingRequested) {
-            button.text = "録音中..."
+            button.text = "終了して貼付"
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(
                 ContextCompat.getColor(this, R.color.recording_active)
             )
@@ -1511,8 +1809,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun showFormatActionMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
         popup.menu.add(0, FormatAction.CONTEXT.id, 0, "文章整形（文脈）")
-        popup.menu.add(0, FormatAction.KATAKANA.id, 1, "カタカナ変換")
-        popup.menu.add(0, FormatAction.ENGLISH.id, 2, "英語翻訳")
+        popup.menu.add(0, FormatAction.ENGLISH.id, 1, "英語翻訳")
 
         popup.setOnMenuItemClickListener { item ->
             val action = FormatAction.fromId(item.itemId) ?: return@setOnMenuItemClickListener false
@@ -1526,9 +1823,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun updateFormatButtonUi() {
         formatContextButton?.text = when (formatAction) {
-            FormatAction.CONTEXT -> "変換"
-            FormatAction.KATAKANA -> "カタカナ"
-            FormatAction.ENGLISH -> "英語"
+            FormatAction.CONTEXT -> "変"
+            FormatAction.ENGLISH -> "英"
         }
     }
 
@@ -1540,8 +1836,9 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)?.toString().orEmpty().trim()
-        val before = getCurrentBeforeCursor()
-        val after = getCurrentAfterCursor()
+        // 変/英 は長文でも変換できるよう、周辺テキスト取得範囲を広めに確保する。
+        val before = getTextBeforeCursor(formatActionBeforeCursorMaxChars)
+        val after = getTextAfterCursor(formatActionAfterCursorMaxChars)
         val pkg = currentPackageName()
         val history = appMemory[pkg]?.history?.toString().orEmpty()
         val inferredFromBefore = extractFormatSourceFromBeforeCursor(before)
@@ -1559,46 +1856,84 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val dictionaryWordSet = dictionaryWordSet()
         formatJob?.cancel()
         formatJob = serviceScope.launch {
-            val localFormatted = localFormat(
-                action = action,
-                input = refinedSource,
-                before = before,
-                after = after,
-                history = history,
-                dictionaryWordSet = dictionaryWordSet
-            )
-
-            val formatted = when (action) {
-                FormatAction.CONTEXT -> enforceJapanesePrimaryContextOutput(
-                    source = refinedSource,
-                    localFormatted = localFormatted,
-                    candidate = localFormatted
+            tryRecoverFormatMutexIfStale()
+            if (!formatActionMutex.tryLock()) {
+                setStatus("前の変換処理中です。少し待ってください")
+                return@launch
+            }
+            val startedAt = System.currentTimeMillis()
+            try {
+                Log.d(
+                    logTag,
+                    "manual-format-start action=${action.name.lowercase()} sourceLen=${refinedSource.length}"
                 )
-                FormatAction.KATAKANA,
-                FormatAction.ENGLISH -> localFormatted
-            }
-            val successStatus = when (action) {
-                FormatAction.CONTEXT -> "文章を整形しました"
-                FormatAction.KATAKANA -> "カタカナに変換しました"
-                FormatAction.ENGLISH -> "英語に翻訳しました"
-            }
-            val unchangedStatus = when (action) {
-                FormatAction.CONTEXT -> "文章整形: 変更なし"
-                FormatAction.KATAKANA -> "カタカナ変換: 変更なし"
-                FormatAction.ENGLISH -> "英語翻訳: 変更なし"
-            }
+                val localResult = localFormat(
+                    action = action,
+                    input = refinedSource,
+                    before = before,
+                    after = after,
+                    history = history,
+                    dictionaryWordSet = dictionaryWordSet
+                )
+                val localFormatted = localResult.text
 
-            applyFormattedResult(
-                source = source,
-                refinedSource = refinedSource,
-                selected = selected,
-                beforeSnapshot = before,
-                pkg = pkg,
-                formatted = formatted,
-                successStatus = successStatus,
-                unchangedStatus = unchangedStatus
-            )
+                val formatted = when (action) {
+                    FormatAction.CONTEXT -> enforceJapanesePrimaryContextOutput(
+                        source = refinedSource,
+                        localFormatted = localFormatted,
+                        candidate = localFormatted
+                    )
+                    FormatAction.ENGLISH -> localFormatted
+                }
+                val statusSuffix = buildFormatStatusSuffix(localResult.note)
+                val successStatus = when (action) {
+                    FormatAction.CONTEXT -> "文章を整形しました"
+                    FormatAction.ENGLISH -> "英語に翻訳しました"
+                } + statusSuffix
+                val unchangedStatus = when (action) {
+                    FormatAction.CONTEXT -> "文章整形: 変更なし"
+                    FormatAction.ENGLISH -> "英語翻訳: 変更なし"
+                } + statusSuffix
+
+                applyFormattedResult(
+                    source = source,
+                    refinedSource = refinedSource,
+                    selected = selected,
+                    beforeSnapshot = before,
+                    pkg = pkg,
+                    formatted = formatted,
+                    successStatus = successStatus,
+                    unchangedStatus = unchangedStatus,
+                    allowAppendOnMiss = action == FormatAction.CONTEXT
+                )
+            } finally {
+                runCatching { formatActionMutex.unlock() }
+                Log.d(
+                    logTag,
+                    "manual-format-finish action=${action.name.lowercase()} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                )
+            }
         }
+    }
+
+    private fun tryRecoverFormatMutexIfStale() {
+        val running = formatJob?.isActive == true
+        if (running) return
+        if (!formatActionMutex.isLocked) return
+        val recovered = runCatching {
+            formatActionMutex.unlock()
+            true
+        }.getOrDefault(false)
+        if (recovered) {
+            Log.w(logTag, "format mutex recovered from stale lock")
+        }
+    }
+
+    private fun buildFormatStatusSuffix(note: String): String {
+        val trimmed = note.trim()
+        if (trimmed.isBlank()) return ""
+        if (trimmed.startsWith("LLM")) return ""
+        return "（$trimmed）"
     }
 
     private suspend fun localFormat(
@@ -1608,51 +1943,113 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         after: String,
         history: String,
         dictionaryWordSet: Set<String>
-    ): String {
-        return try {
-            when (action) {
-                FormatAction.CONTEXT -> {
-                    val contextFormatted = inferenceEngine.infer(
-                        HybridLocalInferenceEngine.Request(
+    ): LocalFormatResult {
+        return withContext(Dispatchers.Default) {
+            try {
+                when (action) {
+                    FormatAction.CONTEXT -> {
+                        val contextFormatted = inferenceEngine.infer(
+                            HybridLocalInferenceEngine.Request(
+                                input = input,
+                                beforeCursor = before,
+                                afterCursor = after,
+                                appHistory = history,
+                                dictionaryWords = dictionaryWordSet,
+                                sceneMode = usageSceneMode,
+                                trigger = HybridLocalInferenceEngine.Trigger.MANUAL_CONVERT,
+                                strength = runtimeFormatStrength
+                            )
+                        )
+                        val llmSource = contextFormatted.ifBlank { input }
+                        val shouldRunLlm = shouldRunContextLlmRefinement(
+                            source = llmSource,
+                            strength = runtimeFormatStrength
+                        )
+                        val llmRefined = try {
+                            if (shouldRunLlm) {
+                                applyLocalLlmRefinement(
+                                    source = llmSource,
+                                    before = before,
+                                    after = after,
+                                    history = history
+                                )
+                            } else {
+                                ""
+                            }
+                        } catch (e: Exception) {
+                            ""
+                        }
+                        val output = llmRefined.ifBlank { contextFormatted }.ifBlank { input }.trim()
+                        val note = when {
+                            llmRefined.isNotBlank() -> "LLM整形"
+                            shouldRunLlm.not() && contextFormatted.isNotBlank() && contextFormatted.trim() != input.trim() -> "高速ローカル整形"
+                            shouldRunLlm.not() -> "高速モード"
+                            contextFormatted.isNotBlank() && contextFormatted.trim() != input.trim() -> "ローカル整形"
+                            else -> "原文維持"
+                        }
+                        LocalFormatResult(
+                            text = output,
+                            note = note
+                        )
+                    }
+                    FormatAction.ENGLISH -> {
+                        val translationStrength = resolveEnglishTranslationStrength(input)
+                        val llmTranslated = try {
+                            applyLocalLlmEnglishTranslation(
+                                source = input,
+                                history = history,
+                                style = runtimeEnglishStyle,
+                                strength = translationStrength
+                            )
+                        } catch (_: Exception) {
+                            ""
+                        }
+                        val onDeviceTranslated = try {
+                            applyOnDeviceEnglishTranslation(source = input)
+                        } catch (_: Exception) {
+                            ""
+                        }
+
+                        val fallback = formatter.toEnglishMessage(
                             input = input,
                             beforeCursor = before,
                             afterCursor = after,
                             appHistory = history,
-                            dictionaryWords = dictionaryWordSet,
-                            sceneMode = usageSceneMode,
-                            trigger = HybridLocalInferenceEngine.Trigger.MANUAL_CONVERT,
-                            strength = runtimeFormatStrength
+                            style = runtimeEnglishStyle
                         )
-                    )
-                    // 整形強度が「強め」かつLLMが利用可能な場合は、追加でLLMによる整形を試みる
-                    val llmRefined = if (runtimeFormatStrength == FormatStrength.STRONG) {
-                        try {
-                            applyLocalLlmRefinement(
-                                source = contextFormatted.ifBlank { input },
-                                before = before,
-                                after = after,
-                                history = history
-                            )
-                        } catch (e: Exception) {
-                            ""
+                        val fallbackSanitized = sanitizeEnglishOutput(fallback)
+                        val fallbackUsable = fallbackSanitized
+                            .takeIf { isAcceptableEnglishFallback(source = input, candidate = it) }
+                            .orEmpty()
+                        val decision = chooseBestEnglishTranslation(
+                            source = input,
+                            llmCandidate = llmTranslated,
+                            onDeviceCandidate = onDeviceTranslated,
+                            fallbackCandidate = fallbackUsable,
+                            fallbackRawCandidate = fallbackSanitized
+                        )
+                        val output = decision.text.ifBlank { input.trim() }
+                        val note = when {
+                            decision.source == EnglishTranslationSource.ON_DEVICE -> "端末翻訳"
+                            decision.source == EnglishTranslationSource.LLM &&
+                                translationStrength != runtimeFormatStrength -> "LLM翻訳(高速)"
+                            decision.source == EnglishTranslationSource.LLM -> "LLM翻訳"
+                            decision.source == EnglishTranslationSource.FALLBACK && output != input.trim() -> "辞書フォールバック"
+                            decision.source == EnglishTranslationSource.FALLBACK_RECOVERY && output != input.trim() -> "辞書フォールバック(簡易)"
+                            else -> "原文維持"
                         }
-                    } else ""
-                    
-                    llmRefined.ifBlank { contextFormatted }.ifBlank { input }.trim()
+                        LocalFormatResult(
+                            text = output,
+                            note = note
+                        )
+                    }
                 }
-                FormatAction.KATAKANA -> formatter.toKatakanaSurface(input)
-                FormatAction.ENGLISH -> sanitizeEnglishOutput(
-                    formatter.toEnglishMessage(
-                        input = input,
-                        beforeCursor = before,
-                        afterCursor = after,
-                        appHistory = history,
-                        style = runtimeEnglishStyle
-                    )
+            } catch (e: Exception) {
+                LocalFormatResult(
+                    text = input,
+                    note = "処理エラー"
                 )
             }
-        } catch (e: Exception) {
-            input // エラー時は入力をそのまま返す
         }
     }
 
@@ -1664,36 +2061,398 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     ): String {
         val trimmed = source.trim()
         if (trimmed.isBlank()) return ""
+        if (trimmed.length >= localLlmRefineSkipInputChars && runtimeFormatStrength != FormatStrength.STRONG) {
+            return ""
+        }
 
-        val llmResponse = withTimeoutOrNull(localLlmTimeoutMs) {
-            localLlmInferenceEngine.refine(
-                LocalLlmInferenceEngine.Request(
-                    input = trimmed,
-                    beforeCursor = before,
-                    afterCursor = after,
-                    appHistory = history,
-                    sceneMode = usageSceneMode,
-                    strength = runtimeFormatStrength
+        val chunks = chunkForLlmTranslation(trimmed, localLlmRefineChunkChars)
+        if (chunks.isEmpty()) return ""
+        val deadlineMs = System.currentTimeMillis() + localLlmRefineTotalBudgetMs
+
+        val outputs = mutableListOf<String>()
+        for (chunk in chunks) {
+            val unit = chunk.trim()
+            if (unit.isBlank()) continue
+            val remainingMs = deadlineMs - System.currentTimeMillis()
+            if (remainingMs <= localLlmRefineMinRemainingMs) {
+                outputs += unit
+                continue
+            }
+            val timeoutMs = minOf(localLlmTimeoutMs, remainingMs)
+
+            val llmResponse = withTimeoutOrNull(timeoutMs) {
+                localLlmInferenceEngine.refine(
+                    LocalLlmInferenceEngine.Request(
+                        input = unit,
+                        beforeCursor = before,
+                        afterCursor = after,
+                        appHistory = history,
+                        sceneMode = usageSceneMode,
+                        strength = runtimeFormatStrength
+                    )
                 )
+            }
+
+            val candidate = llmResponse?.takeIf { it.modelUsed }?.text?.trim().orEmpty()
+            val accepted = candidate.isNotBlank() &&
+                !(unit.length >= 10 && candidate.length > (unit.length * 1.95f + 18).toInt()) &&
+                !(unit.length >= 10 && candidate.length < (unit.length * 0.38f).toInt()) &&
+                !(japaneseCharRatio(unit) >= 0.45f && japaneseCharRatio(candidate) < 0.35f) &&
+                !(unit.length >= 12 && charOverlapRatio(unit, candidate) < 0.30f)
+
+            outputs += if (accepted) candidate else unit
+        }
+
+        val joiner = if (trimmed.contains('\n')) "\n" else " "
+        return outputs.joinToString(joiner).trim()
+    }
+
+    private suspend fun applyLocalLlmEnglishTranslation(
+        source: String,
+        history: String,
+        style: EnglishStyle,
+        strength: FormatStrength
+    ): String {
+        val trimmed = source.trim()
+        if (trimmed.isBlank()) return ""
+
+        val scene = when (style) {
+            EnglishStyle.CASUAL -> UsageSceneMode.MESSAGE
+            EnglishStyle.FORMAL -> UsageSceneMode.WORK
+            EnglishStyle.NATURAL -> usageSceneMode
+        }
+
+        val chunks = chunkForLlmTranslation(trimmed, localLlmEnglishChunkChars)
+        if (chunks.isEmpty()) return ""
+        val deadlineMs = System.currentTimeMillis() + localLlmEnglishTotalBudgetMs
+
+        val outputs = mutableListOf<String>()
+        for (chunk in chunks) {
+            val unit = chunk.trim()
+            if (unit.isBlank()) continue
+            val remainingMs = deadlineMs - System.currentTimeMillis()
+
+            val translated = if (remainingMs > localLlmEnglishMinRemainingMs) {
+                translateEnglishChunkRecursively(
+                    source = unit,
+                    history = history,
+                    style = style,
+                    scene = scene,
+                    strength = strength,
+                    maxChunkChars = localLlmEnglishChunkChars,
+                    depth = 0,
+                    deadlineMs = deadlineMs
+                )
+            } else {
+                ""
+            }
+            val fallbackChunk = englishFallbackForUnit(
+                unit = unit,
+                history = history,
+                style = style
             )
+            val chosenChunk = translated.ifBlank { fallbackChunk }.trim()
+            if (chosenChunk.isBlank()) {
+                return ""
+            }
+            outputs += chosenChunk
+        }
+
+        val joiner = if (trimmed.contains('\n')) "\n" else " "
+        return sanitizeEnglishOutput(outputs.joinToString(joiner).trim())
+    }
+
+    private suspend fun applyOnDeviceEnglishTranslation(source: String): String {
+        val trimmed = source.trim()
+        if (trimmed.isBlank() || !containsJapaneseChars(trimmed)) return ""
+
+        val result = withTimeoutOrNull(onDeviceEnglishTimeoutMs) {
+            onDeviceEnglishTranslator.translate(trimmed)
         } ?: return ""
 
-        if (!llmResponse.modelUsed) return ""
-
-        val candidate = llmResponse.text.trim()
-        if (candidate.isBlank()) return ""
-        if (trimmed.length >= 10 && candidate.length > (trimmed.length * 1.45f + 6).toInt()) return ""
-        if (trimmed.length >= 10 && candidate.length < (trimmed.length * 0.58f).toInt()) return ""
-        if (japaneseCharRatio(trimmed) >= 0.45f && japaneseCharRatio(candidate) < 0.45f) return ""
-        if (charOverlapRatio(trimmed, candidate) < 0.55f && trimmed.length >= 8) return ""
-
-        val sourceTokens = extractJapaneseTokens(trimmed).toSet()
-        if (sourceTokens.size >= 2) {
-            val candidateTokens = extractJapaneseTokens(candidate).toSet()
-            val tokenHit = sourceTokens.count { it in candidateTokens }
-            if (tokenHit.toFloat() / sourceTokens.size.toFloat() < 0.5f) return ""
+        if (result.text.isBlank()) {
+            Log.d(logTag, "on-device-translation-empty reason=${result.reason}")
+            return ""
         }
-        return candidate
+
+        val sanitized = sanitizeEnglishOutput(result.text)
+        val accepted = sanitized.takeIf {
+            isAcceptableEnglishFallback(source = trimmed, candidate = it)
+        }.orEmpty()
+        if (accepted.isBlank()) {
+            Log.d(logTag, "on-device-translation-rejected reason=${result.reason}")
+        } else {
+            Log.d(logTag, "on-device-translation-ok len=${accepted.length}")
+        }
+        return accepted
+    }
+
+    private suspend fun prewarmOnDeviceEnglishModel() {
+        val ready = runCatching {
+            onDeviceEnglishTranslator.ensureModelReady(onDeviceEnglishPrewarmTimeoutMs)
+        }.getOrDefault(false)
+        Log.d(logTag, "on-device-model-ready ready=$ready")
+    }
+
+    private suspend fun translateEnglishChunkRecursively(
+        source: String,
+        history: String,
+        style: EnglishStyle,
+        scene: UsageSceneMode,
+        strength: FormatStrength,
+        maxChunkChars: Int,
+        depth: Int,
+        deadlineMs: Long
+    ): String {
+        val unit = source.trim()
+        if (unit.isBlank()) return ""
+        if (deadlineMs - System.currentTimeMillis() <= localLlmEnglishMinRemainingMs) return ""
+
+        val llm = requestLocalLlmEnglishChunk(
+            unit = unit,
+            history = history,
+            scene = scene,
+            strength = strength,
+            deadlineMs = deadlineMs
+        )
+        if (llm.isNotBlank()) return llm
+
+        val canSplit = depth < localLlmEnglishMaxSplitDepth &&
+            unit.length >= localLlmEnglishSplitThresholdChars &&
+            maxChunkChars > localLlmEnglishMinChunkChars
+        if (canSplit) {
+            val nextChunkChars = (maxChunkChars / 2).coerceAtLeast(localLlmEnglishMinChunkChars)
+            val subChunks = chunkForLlmTranslation(unit, nextChunkChars)
+            if (subChunks.size > 1) {
+                val outputs = mutableListOf<String>()
+                for (sub in subChunks) {
+                    val translated = translateEnglishChunkRecursively(
+                        source = sub,
+                        history = history,
+                        style = style,
+                        scene = scene,
+                        strength = strength,
+                        maxChunkChars = nextChunkChars,
+                        depth = depth + 1,
+                        deadlineMs = deadlineMs
+                    )
+                    val fallbackUnit = englishFallbackForUnit(
+                        unit = sub,
+                        history = history,
+                        style = style
+                    )
+                    val chosen = translated.ifBlank { fallbackUnit }.trim()
+                    if (chosen.isBlank()) {
+                        return ""
+                    }
+                    outputs += chosen
+                }
+                val joiner = if (unit.contains('\n')) "\n" else " "
+                return sanitizeEnglishOutput(outputs.joinToString(joiner).trim())
+            }
+        }
+
+        return englishFallbackForUnit(
+            unit = unit,
+            history = history,
+            style = style
+        )
+    }
+
+    private suspend fun requestLocalLlmEnglishChunk(
+        unit: String,
+        history: String,
+        scene: UsageSceneMode,
+        strength: FormatStrength,
+        deadlineMs: Long
+    ): String {
+        repeat(localLlmEnglishChunkRetryCount) { attempt ->
+            val remainingMs = deadlineMs - System.currentTimeMillis()
+            if (remainingMs <= localLlmEnglishMinRemainingMs) {
+                return ""
+            }
+            val timeoutMs = minOf(localLlmEnglishTimeoutMs, remainingMs)
+            val llmResponse = withTimeoutOrNull(timeoutMs) {
+                // 翻訳は入力自体が文脈なので、追加文脈は最小限にしてトークン節約する。
+                localLlmInferenceEngine.refine(
+                    LocalLlmInferenceEngine.Request(
+                        input = unit,
+                        beforeCursor = "",
+                        afterCursor = "",
+                        appHistory = history,
+                        sceneMode = scene,
+                        strength = strength,
+                        task = LocalLlmInferenceEngine.Task.TRANSLATE_ENGLISH
+                    )
+                )
+            }
+
+            val candidate = llmResponse
+                ?.takeIf { it.modelUsed }
+                ?.text
+                ?.trim()
+                .orEmpty()
+            if (candidate.isNotBlank()) {
+                val sanitized = sanitizeEnglishOutput(candidate)
+                val sourceHasJapanese = containsJapaneseChars(unit)
+                val hasJapaneseLeak = sourceHasJapanese && containsJapaneseChars(sanitized)
+                if (sanitized.isNotBlank() && !hasJapaneseLeak) {
+                    return sanitized
+                }
+                val japaneseRatio = japaneseCharRatio(sanitized)
+                val latinRatio = latinCharRatio(sanitized)
+                if (
+                    sanitized.isNotBlank() &&
+                    sourceHasJapanese &&
+                    japaneseRatio <= localLlmFallbackMaxJapaneseRatio &&
+                    latinRatio >= localLlmFallbackMinLatinRatio
+                ) {
+                    return sanitized
+                }
+                Log.d(
+                    logTag,
+                    "llm-translation-rejected attempt=${attempt + 1} " +
+                        "reason=${llmResponse?.reason ?: "timeout"} " +
+                        "jpRatio=$japaneseRatio latinRatio=$latinRatio"
+                )
+            } else {
+                Log.d(
+                    logTag,
+                    "llm-translation-empty attempt=${attempt + 1} reason=${llmResponse?.reason ?: "timeout"}"
+                )
+            }
+
+            if (attempt + 1 < localLlmEnglishChunkRetryCount) {
+                if (deadlineMs - System.currentTimeMillis() <= localLlmEnglishMinRemainingMs) {
+                    return ""
+                }
+                delay((attempt + 1) * localLlmEnglishRetryDelayMs)
+            }
+        }
+        return ""
+    }
+
+    private fun englishFallbackForUnit(
+        unit: String,
+        history: String,
+        style: EnglishStyle
+    ): String {
+        val fallback = formatter.toEnglishMessage(
+            input = unit,
+            beforeCursor = "",
+            afterCursor = "",
+            appHistory = history,
+            style = style
+        )
+        val sanitized = sanitizeEnglishOutput(fallback)
+        if (sanitized.isBlank()) return ""
+
+        val fallbackJapaneseRatio = japaneseCharRatio(sanitized)
+        val fallbackLatinRatio = latinCharRatio(sanitized)
+        return sanitized.takeIf {
+            it.isNotBlank() &&
+                (
+                    !containsJapaneseChars(it) ||
+                        fallbackJapaneseRatio <= localLlmFallbackMaxJapaneseRatio ||
+                        fallbackLatinRatio >= localLlmFallbackMinLatinRatio
+                    )
+        }.orEmpty()
+    }
+
+    private fun shouldRunContextLlmRefinement(
+        source: String,
+        strength: FormatStrength
+    ): Boolean {
+        val trimmed = source.trim()
+        if (trimmed.isBlank()) return false
+        if (trimmed.length < 20) return false
+        if (trimmed.length > localLlmRefineSkipInputChars && strength != FormatStrength.STRONG) {
+            return false
+        }
+        if (strength == FormatStrength.STRONG) return true
+
+        val punctuationCount = trimmed.count { ch ->
+            ch == '。' || ch == '、' || ch == '！' || ch == '？' || ch == '\n'
+        }
+        val hasNoisyWhitespace = Regex("[\\t ]{2,}").containsMatchIn(trimmed)
+        val longWithoutPunctuation = trimmed.length >= 90 && punctuationCount == 0
+        return hasNoisyWhitespace || longWithoutPunctuation
+    }
+
+    private fun resolveEnglishTranslationStrength(source: String): FormatStrength {
+        val len = source.trim().length
+        return when {
+            len >= 420 -> FormatStrength.LIGHT
+            len >= 180 -> FormatStrength.NORMAL
+            runtimeFormatStrength == FormatStrength.LIGHT -> FormatStrength.LIGHT
+            else -> FormatStrength.NORMAL
+        }
+    }
+
+    private fun chunkForLlmTranslation(text: String, maxChunkChars: Int): List<String> {
+        val normalized = text.replace("\r\n", "\n").trim()
+        if (normalized.isBlank()) return emptyList()
+        if (normalized.length <= maxChunkChars) return listOf(normalized)
+
+        val segments = mutableListOf<String>()
+        val segmentBuf = StringBuilder()
+        fun flushSegment() {
+            val s = segmentBuf.toString().trim()
+            if (s.isNotBlank()) segments += s
+            segmentBuf.setLength(0)
+        }
+
+        for (ch in normalized) {
+            segmentBuf.append(ch)
+            val boundary = ch == '\n' ||
+                ch == '。' || ch == '！' || ch == '？' ||
+                ch == '.' || ch == '!' || ch == '?'
+            if (boundary && segmentBuf.length >= 48) {
+                flushSegment()
+            }
+        }
+        flushSegment()
+
+        if (segments.isEmpty()) return listOf(normalized.take(maxChunkChars))
+
+        val chunks = mutableListOf<String>()
+        val chunkBuf = StringBuilder()
+        fun flushChunk() {
+            val s = chunkBuf.toString().trim()
+            if (s.isNotBlank()) chunks += s
+            chunkBuf.setLength(0)
+        }
+
+        for (seg in segments) {
+            val trimmedSeg = seg.trim()
+            if (trimmedSeg.isBlank()) continue
+
+            if (trimmedSeg.length > maxChunkChars) {
+                // 文単位でも長すぎる場合は、強制的に分割する。
+                var start = 0
+                while (start < trimmedSeg.length) {
+                    val end = (start + maxChunkChars).coerceAtMost(trimmedSeg.length)
+                    val part = trimmedSeg.substring(start, end).trim()
+                    if (part.isNotBlank()) {
+                        if (chunkBuf.isNotEmpty()) {
+                            flushChunk()
+                        }
+                        chunks += part
+                    }
+                    start = end
+                }
+                continue
+            }
+
+            if (chunkBuf.isNotEmpty() && chunkBuf.length + 1 + trimmedSeg.length > maxChunkChars) {
+                flushChunk()
+            }
+            if (chunkBuf.isNotEmpty()) chunkBuf.append('\n')
+            chunkBuf.append(trimmedSeg)
+        }
+        flushChunk()
+
+        return chunks.ifEmpty { listOf(normalized.take(maxChunkChars)) }
     }
 
     private fun dictionaryWordSet(): Set<String> {
@@ -1712,7 +2471,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         pkg: String,
         formatted: String,
         successStatus: String,
-        unchangedStatus: String
+        unchangedStatus: String,
+        allowAppendOnMiss: Boolean
     ) {
         val normalizedFormatted = formatted.trim()
 
@@ -1726,7 +2486,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         val icNow = currentInputConnection ?: return
-        val beforeNow = getCurrentBeforeCursor()
+        val beforeNow = getTextBeforeCursor(formatActionBeforeCursorMaxChars)
         var replaced = false
         if (selected.isNotBlank()) {
             icNow.commitText(normalizedFormatted, 1)
@@ -1751,6 +2511,10 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
 
         if (!replaced) {
+            if (!allowAppendOnMiss) {
+                setStatus("$unchangedStatus（置換対象が見つかりません）")
+                return
+            }
             icNow.commitText(normalizedFormatted, 1)
         }
 
@@ -1765,19 +2529,21 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private fun extractFormatSourceFromBeforeCursor(beforeCursor: String): String {
         if (beforeCursor.isBlank()) return ""
-        val tail = beforeCursor.takeLast(360).trimEnd()
+        val tail = beforeCursor.takeLast(formatSourceTailMaxChars).trimEnd()
         if (tail.isBlank()) return ""
-        val blockStart = tail.lastIndexOf('\n')
-        val segment = if (blockStart >= 0 && blockStart + 1 < tail.length) {
-            tail.substring(blockStart + 1)
-        } else {
-            tail
-        }
-        return segment.trim().takeLast(280).trim()
+        // 以前は「最終行のみ」を対象にしていたが、長文入力では先頭側が変換されないため
+        // まとめて末尾ブロックを対象にする（必要なら選択範囲で明示的に指定できる）。
+        return tail.trim().takeLast(formatSourceMaxChars).trim()
     }
 
     private fun sanitizeEnglishOutput(text: String): String {
-        val trimmed = text.trim()
+        val trimmed = text
+            .replace(Regex("(?im)^(translation|translated|output|result|input)\\s*[:：].*$"), "")
+            .replace("<input>", "")
+            .replace("</input>", "")
+            .replace("<output>", "")
+            .replace("</output>", "")
+            .trim()
         if (trimmed.isBlank()) return ""
         val lines = trimmed
             .lines()
@@ -1785,14 +2551,225 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             .filter { it.isNotBlank() }
         if (lines.isEmpty()) return ""
 
-        val englishLines = lines.filter { line ->
+        val englishOnlyLines = lines.filter { line ->
             line.any { it in 'A'..'Z' || it in 'a'..'z' } &&
                 !line.any { ch -> ch in 'ぁ'..'ゖ' || ch in 'ァ'..'ヺ' || ch in '一'..'龯' }
         }
-        return when {
-            englishLines.isNotEmpty() -> englishLines.joinToString("\n")
-            else -> lines.joinToString("\n")
-        }.replace(Regex("\\s+"), " ").trim()
+
+        // 一部だけ英語化できたケースで「英語行だけ抽出」すると後半が消えて見えるため、
+        // ほぼ全行が英語のみの場合に限って英語行だけを採用する。
+        val useEnglishOnly = englishOnlyLines.isNotEmpty() &&
+            englishOnlyLines.size >= (lines.size * 0.85f).toInt().coerceAtLeast(1)
+
+        val chosen = if (useEnglishOnly) englishOnlyLines else lines
+        return chosen
+            .joinToString("\n")
+            .replace(Regex("[\\t ]+"), " ")
+            .trim()
+    }
+
+    private fun chooseBestEnglishTranslation(
+        source: String,
+        llmCandidate: String,
+        onDeviceCandidate: String,
+        fallbackCandidate: String,
+        fallbackRawCandidate: String
+    ): EnglishTranslationDecision {
+        val sourceTrimmed = source.trim()
+        val llm = sanitizeEnglishOutput(llmCandidate)
+            .takeIf { isAcceptableEnglishFallback(source = sourceTrimmed, candidate = it) }
+            .orEmpty()
+        val onDevice = sanitizeEnglishOutput(onDeviceCandidate)
+            .takeIf { isAcceptableEnglishFallback(source = sourceTrimmed, candidate = it) }
+            .orEmpty()
+        val fallback = sanitizeEnglishOutput(fallbackCandidate)
+            .takeIf { isAcceptableEnglishFallback(source = sourceTrimmed, candidate = it) }
+            .orEmpty()
+        val fallbackRaw = sanitizeEnglishOutput(fallbackRawCandidate)
+        val llmScore = englishTranslationScore(sourceTrimmed, llm)
+        val onDeviceScore = englishTranslationScore(sourceTrimmed, onDevice)
+        val fallbackScore = englishTranslationScore(sourceTrimmed, fallback)
+
+        val candidates = mutableListOf<Triple<String, EnglishTranslationSource, Int>>()
+        if (onDevice.isNotBlank()) {
+            candidates += Triple(onDevice, EnglishTranslationSource.ON_DEVICE, onDeviceScore)
+        }
+        if (llm.isNotBlank()) {
+            candidates += Triple(llm, EnglishTranslationSource.LLM, llmScore)
+        }
+        if (fallback.isNotBlank()) {
+            candidates += Triple(fallback, EnglishTranslationSource.FALLBACK, fallbackScore)
+        }
+
+        val decision = when {
+            candidates.isEmpty() -> {
+                val recovered = recoverEnglishFallback(source = sourceTrimmed, fallbackRaw = fallbackRaw)
+                if (recovered.isNotBlank()) {
+                    EnglishTranslationDecision(
+                        text = recovered,
+                        source = EnglishTranslationSource.FALLBACK_RECOVERY,
+                        llmScore = llmScore,
+                        fallbackScore = fallbackScore,
+                        onDeviceScore = onDeviceScore
+                    )
+                } else {
+                    EnglishTranslationDecision(
+                        text = sourceTrimmed,
+                        source = EnglishTranslationSource.SOURCE,
+                        llmScore = llmScore,
+                        fallbackScore = fallbackScore,
+                        onDeviceScore = onDeviceScore
+                    )
+                }
+            }
+            else -> {
+                val best = candidates
+                    .sortedWith(
+                        compareByDescending<Triple<String, EnglishTranslationSource, Int>> { it.third }
+                            .thenBy { englishSourcePriority(it.second) }
+                    )
+                    .first()
+                EnglishTranslationDecision(
+                    text = best.first,
+                    source = best.second,
+                    llmScore = llmScore,
+                    fallbackScore = fallbackScore,
+                    onDeviceScore = onDeviceScore
+                )
+            }
+        }
+        Log.d(
+            logTag,
+            "translation-choice source=${decision.source.name.lowercase()} " +
+                "llmScore=${decision.llmScore} fallbackScore=${decision.fallbackScore} " +
+                "onDeviceScore=${decision.onDeviceScore} " +
+                "llmLen=${llm.length} onDeviceLen=${onDevice.length} " +
+                "fallbackLen=${fallback.length} fallbackRawLen=${fallbackRaw.length}"
+        )
+        return decision
+    }
+
+    private fun englishSourcePriority(source: EnglishTranslationSource): Int {
+        return when (source) {
+            EnglishTranslationSource.ON_DEVICE -> 0
+            EnglishTranslationSource.LLM -> 1
+            EnglishTranslationSource.FALLBACK -> 2
+            EnglishTranslationSource.FALLBACK_RECOVERY -> 3
+            EnglishTranslationSource.SOURCE -> 4
+        }
+    }
+
+    private fun recoverEnglishFallback(source: String, fallbackRaw: String): String {
+        if (!containsJapaneseChars(source)) return ""
+        if (fallbackRaw.isBlank()) return ""
+
+        val stripped = fallbackRaw
+            .map { ch ->
+                if (
+                    ch in 'ぁ'..'ゖ' ||
+                    ch in 'ァ'..'ヺ' ||
+                    ch in '一'..'龯' ||
+                    ch == '々'
+                ) ' ' else ch
+            }
+            .joinToString("")
+            .replace(Regex("[\\t ]+"), " ")
+            .replace(Regex("\\s+([,\\.\\?!])"), "$1")
+            .trim()
+
+        if (stripped.isBlank()) return ""
+        if (latinCharRatio(stripped) < englishRecoveryMinLatinRatio) return ""
+
+        val words = stripped
+            .split(Regex("\\s+"))
+            .filter { token -> token.any { it in 'A'..'Z' || it in 'a'..'z' } }
+        if (words.size < 2) return ""
+        return stripped
+    }
+
+    private fun englishTranslationScore(source: String, candidate: String): Int {
+        val normalizedCandidate = sanitizeEnglishOutput(candidate)
+        if (normalizedCandidate.isBlank()) return Int.MIN_VALUE / 4
+
+        var score = 0
+        val sourceTrimmed = source.trim()
+        val sourceHasJapanese = containsJapaneseChars(sourceTrimmed)
+        if (sourceHasJapanese &&
+            !isAcceptableEnglishFallback(source = sourceTrimmed, candidate = normalizedCandidate)
+        ) {
+            return Int.MIN_VALUE / 4
+        }
+        val japaneseRatio = japaneseCharRatio(normalizedCandidate)
+        val latinRatio = latinCharRatio(normalizedCandidate)
+
+        score += (latinRatio * 120f).toInt()
+        score -= (japaneseRatio * 220f).toInt()
+        if (sourceHasJapanese && latinRatio < englishScoreMinLatinRatio) {
+            score -= 90
+        }
+        if (sourceHasJapanese && japaneseRatio > englishScoreMaxJapaneseRatio) {
+            score -= 120
+        }
+
+        val sourceLen = sourceTrimmed.filterNot { it.isWhitespace() }.length.coerceAtLeast(1)
+        val outLen = normalizedCandidate.filterNot { it.isWhitespace() }.length
+        val ratio = outLen.toFloat() / sourceLen.toFloat()
+        if (sourceLen >= 12) {
+            when {
+                ratio < 0.33f -> score -= 85
+                ratio < 0.48f -> score -= 35
+                ratio > 2.8f -> score -= 70
+                else -> score += 15
+            }
+        }
+
+        if (englishMetaRegex.containsMatchIn(normalizedCandidate)) {
+            score -= 95
+        }
+        if (englishRepeatedWordRegex.containsMatchIn(normalizedCandidate)) {
+            score -= 70
+        }
+
+        val questionLike = formatter.isQuestionLike(sourceTrimmed)
+        val outputEndsQuestion = normalizedCandidate.trimEnd().endsWith("?")
+        when {
+            questionLike && outputEndsQuestion -> score += 24
+            questionLike && !outputEndsQuestion -> score -= 18
+            !questionLike && outputEndsQuestion -> score -= 8
+        }
+
+        val requestLike = englishRequestSourceRegex.containsMatchIn(sourceTrimmed)
+        val hasPleaseTone = englishPleaseRegex.containsMatchIn(normalizedCandidate)
+        when {
+            requestLike && hasPleaseTone -> score += 12
+            requestLike && !hasPleaseTone -> score -= 6
+        }
+
+        val sourceNumberTokens = englishNumberTokenRegex.findAll(sourceTrimmed).map { it.value }.toSet()
+        if (sourceNumberTokens.isNotEmpty()) {
+            val missingCount = sourceNumberTokens.count { token ->
+                !normalizedCandidate.contains(token)
+            }
+            score -= missingCount * 18
+        }
+
+        val englishWordCount = normalizedCandidate
+            .split(Regex("\\s+"))
+            .count { token -> token.any { it in 'A'..'Z' || it in 'a'..'z' } }
+        if (sourceLen >= 18 && englishWordCount < 3) {
+            score -= 80
+        }
+        return score
+    }
+
+    private fun getTextBeforeCursor(maxChars: Int): String {
+        val ic = currentInputConnection ?: return ""
+        return ic.getTextBeforeCursor(maxChars, 0)?.toString().orEmpty()
+    }
+
+    private fun getTextAfterCursor(maxChars: Int): String {
+        val ic = currentInputConnection ?: return ""
+        return ic.getTextAfterCursor(maxChars, 0)?.toString().orEmpty()
     }
 
     private fun enforceJapanesePrimaryContextOutput(
@@ -1812,10 +2789,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
         if (containsJapaneseChars(normalizedCandidate)) {
             if (isLikelyNonJapaneseStyle(source, normalizedCandidate)) {
-                return normalizedLocal.ifBlank { source.trim() }
+                return source.trim().ifBlank { normalizedLocal.ifBlank { normalizedCandidate } }
             }
-            if (isAggressiveKanjiization(source = source, candidate = normalizedCandidate, localFormatted = normalizedLocal)) {
-                return normalizedLocal.ifBlank { source.trim() }
+            if (isAggressiveKanjiization(source = source, candidate = normalizedCandidate)) {
+                return source.trim().ifBlank { normalizedLocal.ifBlank { normalizedCandidate } }
+            }
+            if (isExcessiveContextRewrite(source = source, candidate = normalizedCandidate)) {
+                return source.trim().ifBlank { normalizedLocal.ifBlank { normalizedCandidate } }
             }
             return normalizedCandidate
         }
@@ -1861,13 +2841,67 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         return false
     }
 
-    private fun isAggressiveKanjiization(source: String, candidate: String, localFormatted: String): Boolean {
+    private fun isAggressiveKanjiization(source: String, candidate: String): Boolean {
         // ひらがな中心の入力が、急に漢字だらけへ変化した場合は不自然変換として弾く。
         if (containsKanjiChars(source)) return false
+
+        val sourceJapaneseCount = countJapaneseChars(source)
+        if (sourceJapaneseCount <= 0) return false
+        val sourceKanaRatio = countKanaChars(source).toFloat() / sourceJapaneseCount.toFloat()
+
+        val candidateJapaneseCount = countJapaneseChars(candidate)
+        if (candidateJapaneseCount <= 0) return false
         val candidateDensity = kanjiDensity(candidate)
-        if (candidateDensity < 0.34f) return false
-        val localDensity = kanjiDensity(localFormatted)
-        return candidateDensity >= localDensity + 0.22f
+        val overlap = charOverlapRatio(source, candidate)
+
+        if (sourceKanaRatio >= 0.70f && candidateDensity >= 0.46f) return true
+        if (source.length >= 6 && overlap < 0.42f && candidateDensity >= 0.32f) return true
+        if (source.length >= 8 && candidate.length > (source.length * 1.55f + 4).toInt() && candidateDensity >= 0.28f) return true
+        return false
+    }
+
+    private fun isExcessiveContextRewrite(source: String, candidate: String): Boolean {
+        // 入力に対して漢字比率や長さが急変する候補は、文脈整形の過変換として抑止する。
+        if (source.isBlank() || candidate.isBlank()) return false
+        if (!containsJapaneseChars(source) || !containsJapaneseChars(candidate)) return false
+
+        val sourceJapaneseCount = countJapaneseChars(source)
+        val candidateJapaneseCount = countJapaneseChars(candidate)
+        if (sourceJapaneseCount <= 0 || candidateJapaneseCount <= 0) return false
+
+        val sourceKanaRatio = countKanaChars(source).toFloat() / sourceJapaneseCount.toFloat()
+        val candidateKanaRatio = countKanaChars(candidate).toFloat() / candidateJapaneseCount.toFloat()
+        val sourceKanjiCount = source.count { it in '一'..'龯' || it == '々' }
+        val candidateKanjiCount = candidate.count { it in '一'..'龯' || it == '々' }
+        val overlap = charOverlapRatio(source, candidate)
+
+        if (
+            source.length >= 6 &&
+            sourceKanaRatio >= 0.45f &&
+            candidateKanaRatio <= 0.20f &&
+            candidateKanjiCount >= sourceKanjiCount + 4 &&
+            overlap < 0.68f
+        ) {
+            return true
+        }
+
+        if (
+            source.length <= 14 &&
+            candidateKanjiCount >= sourceKanjiCount + 3 &&
+            overlap < 0.52f
+        ) {
+            return true
+        }
+
+        if (
+            source.length >= 8 &&
+            candidate.length > (source.length * 1.35f + 4).toInt() &&
+            candidateKanjiCount >= sourceKanjiCount + 2
+        ) {
+            return true
+        }
+
+        return false
     }
 
     private fun kanjiDensity(text: String): Float {
@@ -1906,12 +2940,36 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         }
     }
 
+    private fun latinCharRatio(text: String): Float {
+        if (text.isBlank()) return 0f
+        val plain = text.filterNot { it.isWhitespace() }
+        if (plain.isBlank()) return 0f
+        val latin = plain.count { it in 'A'..'Z' || it in 'a'..'z' }
+        return latin.toFloat() / plain.length.toFloat()
+    }
+
     private fun japaneseCharRatio(text: String): Float {
         if (text.isBlank()) return 0f
         val plain = text.filterNot { it.isWhitespace() }
         if (plain.isBlank()) return 0f
         val japanese = countJapaneseChars(plain)
         return japanese.toFloat() / plain.length.toFloat()
+    }
+
+    private fun isBenignStopError(message: String): Boolean {
+        if (message.isBlank()) return false
+        return message.contains("認識できませんでした") ||
+            message.contains("聞き取れ") ||
+            message.contains("入力待機タイムアウト")
+    }
+
+    private fun isAcceptableEnglishFallback(source: String, candidate: String): Boolean {
+        if (candidate.isBlank()) return false
+        if (!containsJapaneseChars(source)) return true
+        if (!containsJapaneseChars(candidate)) return true
+
+        return japaneseCharRatio(candidate) <= localLlmFallbackMaxJapaneseRatio &&
+            latinCharRatio(candidate) >= localLlmFallbackMinLatinRatio
     }
 
     private fun charOverlapRatio(source: String, target: String): Float {
@@ -2457,7 +3515,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun refreshClipboardButtonState() {
         val button = clipboardPasteButton ?: return
         val hasClip = getClipboardText().isNotBlank()
-        button.text = "貼付け"
+        button.text = "貼付"
         button.isEnabled = hasClip
         button.alpha = if (hasClip) 1f else 0.55f
     }
@@ -2474,17 +3532,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun getCurrentBeforeCursor(): String {
-        return currentInputConnection
-            ?.getTextBeforeCursor(contextWindowSize, 0)
-            ?.toString()
-            .orEmpty()
+        return getTextBeforeCursor(contextWindowSize)
     }
 
     private fun getCurrentAfterCursor(): String {
-        return currentInputConnection
-            ?.getTextAfterCursor(contextWindowSize, 0)
-            ?.toString()
-            .orEmpty()
+        return getTextAfterCursor(contextWindowSize)
     }
 
     private fun currentPackageName(): String {
@@ -2674,7 +3726,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                 }
 
             localDictionary
-                .candidatesFor(variant.baseReading, limit = 80)
+                .candidatesFor(variant.baseReading, limit = conversionLocalCandidateLimit)
                 .forEach { word ->
                     appendSuffixCandidate(word.trim(), suffix)?.let { variantCandidates.add(it) }
                 }
@@ -2790,13 +3842,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                 score += preferredBonus[candidate] ?: 0
                 score += additionalBonus[candidate] ?: 0
                 if (candidate == reading) {
-                    score -= 120
+                    // 未変換候補を極端に不利にしない。無理な漢字化より安全な出力を優先する。
+                    score -= 48
                 }
                 if (candidate == hiraganaToKatakana(reading)) {
                     score -= 45
-                }
-                if (candidate.any { it in '一'..'龯' }) {
-                    score += 26
                 }
                 if (geoNameRegex.containsMatchIn(candidate)) {
                     score += if (workTravelRegex.containsMatchIn(contextText)) 22 else 8
@@ -2817,11 +3867,47 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
                     afterCursor = afterCursor,
                     contextText = contextText
                 )
+                score -= manualConvertStabilityPenalty(
+                    reading = reading,
+                    candidate = candidate
+                )
                 candidate to score
             }
             .sortedByDescending { it.second }
             .map { it.first }
             .toList()
+    }
+
+    private fun manualConvertStabilityPenalty(
+        reading: String,
+        candidate: String
+    ): Int {
+        val normalizedReading = normalizeReadingKana(reading)
+        if (normalizedReading.isBlank()) return 0
+
+        val normalizedCandidate = candidate.trim()
+        if (normalizedCandidate.isBlank()) return 0
+        if (normalizedCandidate == normalizedReading) return 0
+
+        val kanjiCount = normalizedCandidate.count { it in '一'..'龯' || it == '々' }
+        val hiraganaCount = normalizedCandidate.count { it in 'ぁ'..'ゖ' }
+        val katakanaCount = normalizedCandidate.count { it in 'ァ'..'ヺ' || it == 'ー' }
+        val kanaOnlyReading = normalizedReading.count { it in 'ぁ'..'ゖ' || it in 'ァ'..'ヺ' || it == 'ー' }
+
+        var penalty = 0
+
+        // 短い読みで全漢字化する候補は過変換になりやすい。
+        if (kanaOnlyReading <= 5 && kanjiCount >= 3 && hiraganaCount == 0 && katakanaCount == 0) {
+            penalty += 60
+        }
+        if (normalizedCandidate.length >= normalizedReading.length + 4) {
+            penalty += 30
+        }
+        if (kanaOnlyReading <= 3 && kanjiCount >= 1 && normalizedCandidate.length >= 4) {
+            penalty += 20
+        }
+
+        return penalty
     }
 
     private fun buildReadingVariantsForSearch(reading: String): List<ReadingVariant> {
@@ -3369,34 +4455,84 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val sw = configuration.smallestScreenWidthDp
         val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        // 基準となる計算（文字サイズの決定に使用）
-        val targetImeHeight = (windowHeight * when {
+        // 基準計算にユーザー調整倍率を掛けて最終高さを決定する。
+        val baseTargetImeHeight = (windowHeight * when {
             sw >= 600 && isLandscape -> 0.42f
             sw >= 600 -> 0.36f
             isLandscape -> 0.50f
             else -> 0.44f
         }).roundToInt()
+        val targetImeHeight = (baseTargetImeHeight * runtimeImeHeightScale)
+            .roundToInt()
+            .coerceIn((windowHeight * 0.30f).roundToInt(), (windowHeight * 0.72f).roundToInt())
 
         val guideTextSizeSp = if (sw >= 600) 14f else if (isLandscape) 10.5f else 11f
         val statusTextSizeSp = if (sw >= 600) 15f else if (isLandscape) 11.5f else 12f
         val flickTextSizeSp = if (sw >= 600) 18f else if (isLandscape) 14f else 16f
+        flickDeadZonePx = when {
+            sw >= 700 -> dp(18)
+            sw >= 600 -> dp(16)
+            isLandscape -> dp(15)
+            else -> dp(13)
+        }
         
         candidateChipTextSizeSp = if (sw >= 600) 16f else if (isLandscape) 13f else 15f
         flickKeyTextSizeSp = flickTextSizeSp
 
-        // 新しいレイアウトではXMLでの指定（68dp等）を優先するため、updateViewHeightによる高さ強制上書きを停止。
-        // ただし、ステータスバーなどの特定の要素の文字サイズのみ反映。
+        // 画面サイズに合わせてキー高をクランプし、Fold展開時の過大表示を抑える。
         statusText?.textSize = statusTextSizeSp
         if (flickGuideText?.isVisible == true) {
             flickGuideText?.textSize = guideTextSizeSp
         }
 
-        // テンキーのスタイリング（文字サイズのみ）
+        resizeTenKeyButtons(root, targetImeHeight)
+        // テンキーのスタイリング（文字サイズ・ラベル）
         styleFlickTenKeys(root)
     }
 
     private fun resizeTenKeyButtons(root: View, heightPx: Int) {
-        // 新しいレイアウトではXMLのサイズを優先するため、何もしない。
+        val keyHeight = (heightPx * 0.16f).roundToInt().coerceIn(dp(62), dp(78))
+        val micRowHeight = (keyHeight + dp(6)).coerceIn(dp(64), dp(88))
+        val candidateHeight = (keyHeight - dp(8)).coerceIn(dp(46), dp(62))
+        val statusHeight = dp(24)
+        val heightControlRowHeight = (keyHeight - dp(30)).coerceIn(dp(30), dp(40))
+
+        fun apply(view: View) {
+            when {
+                view.id == R.id.micButton ||
+                    view.id == R.id.formatContextButton -> {
+                    updateViewHeight(view, micRowHeight)
+                }
+                view.id == R.id.statusText -> {
+                    if (statusText?.isVisible == true) {
+                        updateViewHeight(view, statusHeight)
+                    }
+                }
+                view.id == R.id.imeHeightControlRow -> {
+                    updateViewHeight(view, heightControlRowHeight)
+                }
+                view.id == R.id.clipboardPasteButton ||
+                    view.id == R.id.addWordButton -> {
+                    updateViewHeight(view, candidateHeight)
+                }
+                view.id == R.id.candidateRow -> {
+                    updateViewHeight(view, candidateHeight + dp(4))
+                }
+                view is Button -> {
+                    val tag = view.tag as? String
+                    if (!tag.isNullOrBlank() && isTenKeyTag(tag)) {
+                        updateViewHeight(view, keyHeight)
+                    }
+                }
+            }
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    apply(view.getChildAt(index))
+                }
+            }
+        }
+
+        apply(root)
     }
 
     private fun isTenKeyTag(tag: String): Boolean {
@@ -3507,6 +4643,27 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val score: Int
     )
 
+    private data class LocalFormatResult(
+        val text: String,
+        val note: String
+    )
+
+    private data class EnglishTranslationDecision(
+        val text: String,
+        val source: EnglishTranslationSource,
+        val llmScore: Int,
+        val fallbackScore: Int,
+        val onDeviceScore: Int
+    )
+
+    private enum class EnglishTranslationSource {
+        ON_DEVICE,
+        LLM,
+        FALLBACK,
+        FALLBACK_RECOVERY,
+        SOURCE
+    }
+
     private data class PhraseStats(
         var frequency: Int = 1,
         var lastUsedAt: Long = System.currentTimeMillis()
@@ -3570,8 +4727,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
 
     private enum class FormatAction(val id: Int) {
         CONTEXT(1),
-        KATAKANA(2),
-        ENGLISH(3);
+        ENGLISH(2);
 
         companion object {
             fun fromId(id: Int): FormatAction? {
@@ -3586,16 +4742,47 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private companion object {
+        const val logTag = "ToraVoiceIme"
+        const val backspaceRepeatInitialDelayMs = 240L
+        const val backspaceRepeatIntervalMs = 58L
         const val toggleTapWindowMs = 850L
+        const val formatSlowStatusDelayMs = 2800L
         const val convertCycleWindowMs = 2200L
         const val convertFallbackWindowMs = 10000L
         const val localLlmTimeoutMs = 1800L
+        const val localLlmEnglishTimeoutMs = 4500L
+        const val onDeviceEnglishTimeoutMs = 3200L
+        const val onDeviceEnglishPrewarmTimeoutMs = 18000L
+        const val localLlmRefineTotalBudgetMs = 2600L
+        const val localLlmRefineMinRemainingMs = 240L
+        const val localLlmEnglishTotalBudgetMs = 5200L
+        const val localLlmEnglishMinRemainingMs = 280L
         const val formatRerankMinGain = 18
         const val suggestionDisplayCount = 8
         const val maxConversionCandidates = 18
         const val maxConversionDisplayCount = 14
         const val maxInlineConversionDisplayCount = 12
         const val contextWindowSize = 200
+        // 変/英 の対象抽出は長文対応のため大きめに確保（変換キー操作時のみ使用）
+        const val formatActionBeforeCursorMaxChars = 6500
+        const val formatActionAfterCursorMaxChars = 1200
+        const val formatSourceTailMaxChars = 7000
+        const val formatSourceMaxChars = 6500
+        const val localLlmEnglishChunkChars = 620
+        const val localLlmEnglishChunkRetryCount = 2
+        const val localLlmEnglishRetryDelayMs = 160L
+        const val localLlmEnglishMaxSplitDepth = 2
+        const val localLlmEnglishSplitThresholdChars = 340
+        const val localLlmEnglishMinChunkChars = 180
+        const val localLlmFallbackMaxJapaneseRatio = 0.14f
+        const val localLlmFallbackMinLatinRatio = 0.58f
+        const val localLlmRefineChunkChars = 900
+        const val localLlmRefineSkipInputChars = 520
+        const val englishLlmMaxScoreDeficit = 6
+        const val englishScoreMinLatinRatio = 0.24f
+        const val englishScoreMaxJapaneseRatio = 0.18f
+        const val englishRecoveryMinLatinRatio = 0.20f
+        const val conversionLocalCandidateLimit = 24
         const val surfaceLocalLookupLimit = 480
         const val surfaceLocalLookupMaxReadingLength = 14
         const val surfaceLocalCandidatePerReading = 4
@@ -3615,6 +4802,11 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         val institutionContextRegex = Regex("(制度|仕組|法|法律|規則|運用|改正|導入|税|保険|国|会社)")
         val brakingContextRegex = Regex("(車|トラック|ブレーキ|制動|停止|減速|運転|走行)")
         val inspectContextRegex = Regex("(確認|点検|レビュー|見直|調査|検証|精査)")
+        val englishMetaRegex = Regex("(?i)\\b(translation|translated|output|result|input)\\b|<\\/?input>|<\\/?output>")
+        val englishRepeatedWordRegex = Regex("(?i)\\b([a-z][a-z']{1,})\\b(?:\\s+\\1\\b){2,}")
+        val englishNumberTokenRegex = Regex("\\d+[\\d:\\-./]*")
+        val englishRequestSourceRegex = Regex("(教えて|ください|お願い|お願いします|してほしい|して下さい)")
+        val englishPleaseRegex = Regex("(?i)\\b(please|could you|would you|can you)\\b")
         val nameHonorificContextRegex = Regex("(さん|ちゃん|くん|君|様|氏|先輩|先生)")
         val movementContextRegex = Regex("(行く|いく|来る|くる|向か|到着|出発|経由|寄る|近く|方面|まで|から|で)")
         val geoCandidateRegex = Regex("(都|道|府|県|市|区|町|村|駅|港|IC|PA|SA|JCT|タワー|ビル)")

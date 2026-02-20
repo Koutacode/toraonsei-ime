@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_keyboard"
-    android:padding="14dp">
+    android:padding="8dp">
 
     <LinearLayout
         android:id="@+id/recordRow"
@@ -19,7 +19,7 @@
         <Button
             android:id="@+id/micButton"
             android:layout_width="0dp"
-            android:layout_height="96dp"
+            android:layout_height="72dp"
             android:layout_weight="2.0"
             android:background="@drawable/bg_chip"
             android:text="録音開始"
@@ -29,21 +29,9 @@
             android:textStyle="bold" />
 
         <Button
-            android:id="@+id/sceneModeButton"
-            android:layout_width="0dp"
-            android:layout_height="96dp"
-            android:layout_marginStart="8dp"
-            android:layout_weight="0.95"
-            android:background="@drawable/bg_flick_action_key"
-            android:text="メッセージ"
-            android:textAllCaps="false"
-            android:textColor="#F8FAFC"
-            android:textSize="16sp" />
-
-        <Button
             android:id="@+id/formatContextButton"
             android:layout_width="0dp"
-            android:layout_height="96dp"
+            android:layout_height="72dp"
             android:layout_marginStart="8dp"
             android:layout_weight="0.95"
             android:background="@drawable/bg_flick_action_key"
@@ -56,11 +44,52 @@
     <TextView
         android:id="@+id/statusText"
         android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:visibility="gone"
+        android:layout_height="24dp"
+        android:gravity="center"
+        android:textColor="#334155"
+        android:textSize="13sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/recordRow" />
+
+    <LinearLayout
+        android:id="@+id/imeHeightControlRow"
+        android:layout_width="0dp"
+        android:layout_height="34dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/statusText">
+
+        <TextView
+            android:id="@+id/imeHeightLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="高さ"
+            android:textColor="#334155"
+            android:textSize="12sp" />
+
+        <SeekBar
+            android:id="@+id/imeHeightSeekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:max="47"
+            android:progress="22" />
+
+        <TextView
+            android:id="@+id/imeHeightValueText"
+            android:layout_width="44dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:text="100%"
+            android:textColor="#334155"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/manualInputPanel"
@@ -69,10 +98,10 @@
         android:layout_marginTop="6dp"
         android:background="#D4D6DB"
         android:orientation="vertical"
-        android:padding="10dp"
+        android:padding="6dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/recordRow">
+        app:layout_constraintTop_toBottomOf="@+id/imeHeightControlRow">
 
         <LinearLayout
             android:id="@+id/tenKeyPanel"
@@ -84,7 +113,7 @@
             <LinearLayout
                 android:id="@+id/candidateRow"
                 android:layout_width="match_parent"
-                android:layout_height="62dp"
+                android:layout_height="56dp"
                 android:layout_marginBottom="6dp"
                 android:baselineAligned="false"
                 android:orientation="horizontal">
@@ -146,7 +175,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="LANG_PICKER"
@@ -157,7 +186,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -171,7 +200,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -185,7 +214,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -200,7 +229,7 @@
                 <Button
                     android:id="@+id/keyBackspaceButton"
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -220,7 +249,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="CURSOR_LEFT"
@@ -231,7 +260,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -245,7 +274,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -259,7 +288,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -273,7 +302,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -294,7 +323,7 @@
                 <Button
                     android:id="@+id/inputModeButton"
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="MODE_CYCLE"
@@ -305,7 +334,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -319,7 +348,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -333,7 +362,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -347,7 +376,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -367,7 +396,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
                     android:tag="SPACE"
@@ -378,7 +407,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -390,7 +419,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -404,7 +433,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1.25"
                     android:background="@drawable/bg_flick_key"
@@ -418,7 +447,7 @@
 
                 <Button
                     android:layout_width="0dp"
-                    android:layout_height="96dp"
+                    android:layout_height="72dp"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_flick_action_key"
@@ -438,7 +467,7 @@
         android:layout_marginTop="10dp"
         android:background="#0B1220"
         android:orientation="vertical"
-        android:padding="10dp"
+        android:padding="6dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -460,7 +489,7 @@
             android:layout_marginTop="8dp"
             android:background="#1E293B"
             android:hint="単語"
-            android:padding="10dp"
+            android:padding="6dp"
             android:textColor="#F9FAFB"
             android:textColorHint="#94A3B8"
             android:textSize="16sp" />
@@ -472,7 +501,7 @@
             android:layout_marginTop="8dp"
             android:background="#1E293B"
             android:hint="読み(かな) 必須"
-            android:padding="10dp"
+            android:padding="6dp"
             android:textColor="#F9FAFB"
             android:textColorHint="#94A3B8"
             android:textSize="16sp" />
@@ -506,4 +535,5 @@
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
+
 

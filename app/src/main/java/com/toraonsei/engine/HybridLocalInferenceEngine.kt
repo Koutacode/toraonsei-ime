@@ -88,9 +88,7 @@ class HybridLocalInferenceEngine(
         text = text.replace(Regex("！+"), "！")
         text = text.replace(Regex("？+"), "？")
 
-        // メッセージ用途では文末の「。」を軽くし、読みやすさを優先。
         return text
-            .replace(Regex("。(?=\\s|$)"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
     }

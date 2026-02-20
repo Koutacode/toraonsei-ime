@@ -26,20 +26,6 @@ enum class EnglishStyle(val configValue: String) {
 
 class LocalFormatter {
 
-    fun toKatakanaSurface(input: String): String {
-        val trimmed = input.trim()
-        if (trimmed.isBlank()) return ""
-        val out = StringBuilder(trimmed.length)
-        trimmed.forEach { ch ->
-            if (ch in 'ぁ'..'ゖ') {
-                out.append((ch.code + 0x60).toChar())
-            } else {
-                out.append(ch)
-            }
-        }
-        return out.toString()
-    }
-
     fun formatWithContext(
         input: String,
         beforeCursor: String,
@@ -786,6 +772,14 @@ class LocalFormatter {
         )
 
         val regexTranslations = listOf(
+            Regex("あなた(のお|の)?名前は何ですか[?？]?") to "what is your name?",
+            Regex("お?名前は何ですか[?？]?") to "what is your name?",
+            Regex("英語で(話せますか|しゃべれますか|喋れますか)[?？]?") to "can you speak in English?",
+            Regex("(.+?)を英語にして(ください|下さい)?[。.!！?？]?") to "please translate $1 into English",
+            Regex("私の名前は(.+?)(です|だ)[。.!！?？]?") to "my name is $1",
+            Regex("今現在(は)?") to "right now",
+            Regex("(.+?)は何ですか[?？]?") to "what is $1?",
+            Regex("(.+?)を教えてください[。.!！?？]?") to "please tell me about $1",
             Regex("(.+?)をお願いします") to "please $1",
             Regex("(.+?)してください") to "please $1",
             Regex("(.+?)して下さい") to "please $1",
@@ -801,6 +795,17 @@ class LocalFormatter {
             "おはようございます" to "good morning",
             "こんにちは" to "hello",
             "こんばんは" to "good evening",
+            "英語でしゃべれますか" to "can you speak in English",
+            "英語で話せますか" to "can you speak in English",
+            "英語で喋れますか" to "can you speak in English",
+            "あなたのお名前は何ですか" to "what is your name",
+            "あなたの名前は何ですか" to "what is your name",
+            "お名前は何ですか" to "what is your name",
+            "名前は何ですか" to "what is your name",
+            "今日の天気予報は何ですか" to "what is today's weather forecast",
+            "天気予報は何ですか" to "what is the weather forecast",
+            "天気予報を教えてください" to "please tell me the weather forecast",
+            "教えてください" to "please tell me",
             "お願いします" to "please",
             "よろしくお願いします" to "thank you in advance",
             "ありがとうございます" to "thank you",
@@ -885,6 +890,11 @@ class LocalFormatter {
             "場所" to "place",
             "会社" to "company",
             "自宅" to "home",
+            "名前" to "name",
+            "お名前" to "name",
+            "何" to "what",
+            "天気予報" to "weather forecast",
+            "天気" to "weather",
             "録音" to "recording",
             "候補" to "candidate",
             "通知" to "notification",
