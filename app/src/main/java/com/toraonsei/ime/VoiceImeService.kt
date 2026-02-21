@@ -804,6 +804,13 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             }
             if (!tag.isNullOrBlank() && !tag.startsWith("F")) {
                 root.setOnClickListener { handleTaggedKeyInput(tag) }
+
+                if (tag == "CONVERT") {
+                    root.setOnLongClickListener {
+                        applyFormatAction(formatAction)
+                        true
+                    }
+                }
             }
             return
         }
@@ -960,8 +967,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
             "SPACE" -> commitTextDirect(" ")
             "ENTER" -> performEditorActionOrEnter()
             "BACKSPACE" -> handleBackspace()
-            // 「かな変換」は使わないため、変換キーは現在選択中の整形（変/英）を適用する。
-            "CONVERT" -> applyFormatAction(formatAction)
+            "CONVERT" -> convertReadingToCandidate()
             "CURSOR_LEFT" -> {
                 if (!moveCursorInAddWordEditor(-1)) {
                     sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -5137,3 +5143,4 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         )
     }
 }
+
