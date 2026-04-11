@@ -95,7 +95,7 @@ class LocalLlmInferenceEngine(
                 strength = request.strength,
                 inputChars = input.length
             ),
-            "stop" to listOf("</s>", "\n\n##", "\n\n---")
+            "stop" to listOf("</s>", "\n\n##", "\n\n---", "<end_of_turn>", "<eos>")
         )
         val completion = completionMutex.withLock {
             synchronized(lock) {
@@ -168,7 +168,7 @@ class LocalLlmInferenceEngine(
                 "model_fd" to modelFd,
                 "use_mmap" to false,
                 "use_mlock" to false,
-                "n_ctx" to 2048,
+                "n_ctx" to 4096,
                 "n_threads" to Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
             )
 
@@ -235,9 +235,23 @@ class LocalLlmInferenceEngine(
     }
 
     private fun buildPrompt(request: Request): String {
+        val rawPrompt = buildRawPrompt(request)
+        return if (isGemmaModel()) wrapGemmaTemplate(rawPrompt) else rawPrompt
+    }
+
+    private fun isGemmaModel(): Boolean {
+        val path = loadedModelPath.lowercase()
+        return path.contains("gemma")
+    }
+
+    private fun wrapGemmaTemplate(prompt: String): String {
+        return "<start_of_turn>user\n$prompt\n<end_of_turn>\n<start_of_turn>model\n"
+    }
+
+    private fun buildRawPrompt(request: Request): String {
         val sceneInstruction = when (request.sceneMode) {
             UsageSceneMode.WORK -> "仕事モード: 敬語・丁寧語を使い、簡潔で明確な文に整える"
-            UsageSceneMode.MESSAGE -> "会話モード: 少し砕けた自然な口語に整える"
+            UsageSceneMode.MESSAGE -> "会話モード: 少し砕けた自然な口語に整える。文末に「。」は付けない"
         }
         val strengthInstruction = when (request.strength) {
             FormatStrength.LIGHT -> "弱め: 誤変換と句読点のみ最小修正"
@@ -293,6 +307,7 @@ class LocalLlmInferenceEngine(
             - 音の伸ばしは必要に応じて長音記号「ー」を使う
             - 出力は整形後テキストのみ（解説不要）
             - 日本語で出力する
+            ${if (request.sceneMode == UsageSceneMode.MESSAGE) "- 会話モードでは文末に句点「。」を付けない（「！」「？」は可）" else ""}
 
             利用シーン: $sceneInstruction
             整形強度: $strengthInstruction
