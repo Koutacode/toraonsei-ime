@@ -3,4 +3,8 @@
     <string name="app_name">トラ音声IME</string>
     <string name="ime_name">トラ音声入力キーボード</string>
     <string name="subtype_ja">日本語 音声入力</string>
+    <string name="accessibility_service_description">トラ音声IMEのフローティング音声入力機能です。どのアプリの入力欄にも音声で入力できます。</string>
+    <string name="floating_notification_channel">フローティング音声入力</string>
+    <string name="floating_notification_title">フローティング音声入力が有効です</string>
+    <string name="floating_notification_text">タップして停止</string>
 </resources>

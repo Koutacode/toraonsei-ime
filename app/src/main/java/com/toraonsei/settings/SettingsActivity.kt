@@ -27,6 +27,8 @@ import com.toraonsei.dict.DictionaryMaintenanceActivity
 import com.toraonsei.format.EnglishStyle
 import com.toraonsei.format.FormatStrength
 import com.toraonsei.format.LocalLlmSupport
+import com.toraonsei.floating.FloatingVoiceService
+import com.toraonsei.floating.TextInjectionAccessibilityService
 import com.toraonsei.speech.SherpaAsrModelSupport
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -94,6 +96,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var asrModelPathText: TextView
     private lateinit var localLlmStatusText: TextView
     private lateinit var localLlmPathText: TextView
+    private lateinit var floatingStatusText: TextView
+    private lateinit var startFloatingButton: Button
+    private lateinit var stopFloatingButton: Button
+    private lateinit var openAccessibilitySettingsButton: Button
 
     private val formatStrengthLabels = listOf("弱め", "標準", "強め")
     private val formatStrengthValues = listOf(
@@ -223,6 +229,10 @@ class SettingsActivity : AppCompatActivity() {
         asrModelPathText = findViewById(R.id.asrModelPathText)
         localLlmStatusText = findViewById(R.id.localLlmStatusText)
         localLlmPathText = findViewById(R.id.localLlmPathText)
+        floatingStatusText = findViewById(R.id.floatingStatusText)
+        startFloatingButton = findViewById(R.id.startFloatingButton)
+        stopFloatingButton = findViewById(R.id.stopFloatingButton)
+        openAccessibilitySettingsButton = findViewById(R.id.openAccessibilitySettingsButton)
         importAsrModelButton.text = "ローカルASR（現在未使用）"
         importLlmModelButton.text = "ローカルLLMを自動取得（1タップ）"
 
@@ -326,6 +336,39 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        startFloatingButton.setOnClickListener {
+            if (!ensureUnlocked()) return@setOnClickListener
+            if (!Settings.canDrawOverlays(this)) {
+                toast("オーバーレイ権限が必要です。設定画面を開きます")
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return@setOnClickListener
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+                toast("マイク権限が必要です")
+                ensureMicrophonePermission()
+                return@setOnClickListener
+            }
+            FloatingVoiceService.start(this)
+            updateFloatingStatus()
+            toast("フローティング音声入力を起動しました")
+        }
+
+        stopFloatingButton.setOnClickListener {
+            FloatingVoiceService.stop(this)
+            updateFloatingStatus()
+            toast("フローティング音声入力を停止しました")
+        }
+
+        openAccessibilitySettingsButton.setOnClickListener {
+            toast("「トラ音声IME」を有効にしてください")
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
         lifecycleScope.launch {
             configRepository.configFlow.collectLatest { config ->
                 unlocked = config.unlocked
@@ -352,6 +395,21 @@ class SettingsActivity : AppCompatActivity() {
         super.onResume()
         updateAsrModelStatus()
         updateLocalLlmStatus()
+        updateFloatingStatus()
+    }
+
+    private fun updateFloatingStatus() {
+        val overlayOk = Settings.canDrawOverlays(this)
+        val accessibilityOk = TextInjectionAccessibilityService.isAvailable()
+        val statusParts = mutableListOf<String>()
+        if (!overlayOk) statusParts.add("オーバーレイ権限: 未許可")
+        if (!accessibilityOk) statusParts.add("テキスト挿入: 未有効")
+        if (overlayOk && accessibilityOk) statusParts.add("準備完了")
+        floatingStatusText.text = "状態: ${statusParts.joinToString(" / ")}"
+
+        startFloatingButton.isEnabled = unlocked
+        stopFloatingButton.isEnabled = unlocked
+        openAccessibilitySettingsButton.isEnabled = true
     }
 
     private fun applyLockUi(isUnlocked: Boolean) {

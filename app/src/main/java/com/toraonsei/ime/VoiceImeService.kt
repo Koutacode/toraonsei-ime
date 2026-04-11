@@ -109,6 +109,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private var backspaceRepeatJob: Job? = null
     private var backspaceRepeatActive = false
     private var formatJob: Job? = null
+    private var suggestionDebounceJob: Job? = null
     private var inputMode: InputMode = InputMode.KANA
     private var alphaUppercase = false
     private var usageSceneMode: UsageSceneMode = UsageSceneMode.MESSAGE
@@ -342,6 +343,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         backspaceRepeatActive = false
         backspaceRepeatJob?.cancel()
         formatJob?.cancel()
+        suggestionDebounceJob?.cancel()
         dismissFlickPopup()
         speechController.destroy()
         localLlmInferenceEngine.release()
@@ -933,7 +935,7 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     ): FlickDirection {
         val dx = endX - startX
         val dy = endY - startY
-        val deadZonePx = flickDeadZonePx.takeIf { it > 0 } ?: dp(14)
+        val deadZonePx = flickDeadZonePx.takeIf { it > 0 } ?: dp(18)
         if (abs(dx) < deadZonePx && abs(dy) < deadZonePx) {
             return FlickDirection.CENTER
         }
@@ -3276,6 +3278,14 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     }
 
     private fun refreshSuggestions() {
+        suggestionDebounceJob?.cancel()
+        suggestionDebounceJob = serviceScope.launch {
+            delay(50L)
+            refreshSuggestionsImmediate()
+        }
+    }
+
+    private fun refreshSuggestionsImmediate() {
         refreshClipboardButtonState()
         val before = getCurrentBeforeCursor()
         val after = getCurrentAfterCursor()
@@ -3332,8 +3342,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
     private fun renderCandidates(suggestions: List<String>) {
         val container = candidateContainer ?: return
         container.removeAllViews()
-        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(40)
-        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(84)
+        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(46)
+        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(96)
         val chipTextSize = candidateChipTextSizeSp
 
         suggestions.take(suggestionDisplayCount).forEach { suggestion ->
@@ -3367,8 +3377,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         container.removeAllViews()
         candidateScroll?.scrollTo(0, 0)
 
-        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(40)
-        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(84)
+        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(46)
+        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(96)
         val chipTextSize = candidateChipTextSizeSp
 
         val guide = TextView(this).apply {
@@ -3448,8 +3458,8 @@ class VoiceImeService : InputMethodService(), SpeechController.Callback {
         container.removeAllViews()
         candidateScroll?.scrollTo(0, 0)
 
-        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(40)
-        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(84)
+        val chipHeight = candidateChipHeightPx.takeIf { it > 0 } ?: dp(46)
+        val chipMinWidth = candidateChipMinWidthPx.takeIf { it > 0 } ?: dp(96)
         val chipTextSize = (candidateChipTextSizeSp - 0.5f).coerceAtLeast(11f)
 
         val guide = TextView(this).apply {

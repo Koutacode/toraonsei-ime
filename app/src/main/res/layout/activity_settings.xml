@@ -243,6 +243,49 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
+            android:text="フローティング音声入力"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="どのアプリの上にも浮かぶ音声入力ボタンを表示します。話しながらAIがリアルタイムで文章を整形します。" />
+
+        <TextView
+            android:id="@+id/floatingStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="状態: 停止中" />
+
+        <Button
+            android:id="@+id/startFloatingButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="フローティング音声入力を起動" />
+
+        <Button
+            android:id="@+id/stopFloatingButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="フローティング音声入力を停止"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/openAccessibilitySettingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="テキスト挿入サービスを有効化" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
             android:text="プライバシー"
             android:textSize="18sp"
             android:textStyle="bold" />

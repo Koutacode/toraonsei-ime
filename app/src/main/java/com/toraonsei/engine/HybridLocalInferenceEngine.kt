@@ -84,9 +84,11 @@ class HybridLocalInferenceEngine(
             enforceQuestionAndExclamation(text)
         }
         text = normalizeWhitespace(text)
-        text = text.replace(Regex("。+"), "。")
         text = text.replace(Regex("！+"), "！")
         text = text.replace(Regex("？+"), "？")
+
+        // LINE等SNS/メッセンジャー向け: 会話モードでは文末の「。」を除去
+        text = text.replace(Regex("。+"), "")
 
         return text
             .replace(Regex("\\s+"), " ")
