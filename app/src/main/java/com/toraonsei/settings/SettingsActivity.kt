@@ -52,9 +52,9 @@ class SettingsActivity : AppCompatActivity() {
 
         private val defaultLlmModelFile = RemoteModelFile(
             fileName = "model.gguf",
-            url = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=true"
+            url = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true"
         )
-        private const val defaultLlmModelDisplayName = "Gemma 2 2B Instruct (Q4_K_M, 約1.6GB)"
+        private const val defaultLlmModelDisplayName = "Qwen 2.5 3B Instruct (Q4_K_M, 約2.0GB)"
     }
 
     private lateinit var configRepository: AppConfigRepository
@@ -271,9 +271,12 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun maybePromptInitialModelDownload() {
-        val status = LocalLlmSupport.detect(this)
-        if (status.available) return
         val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
+        val status = LocalLlmSupport.detect(this)
+        if (status.available) {
+            maybePromptModelUpgrade(prefs)
+            return
+        }
         if (prefs.getBoolean("llm_prompt_shown", false)) return
 
         AlertDialog.Builder(this)
@@ -290,6 +293,32 @@ class SettingsActivity : AppCompatActivity() {
                 prefs.edit().putBoolean("llm_prompt_shown", true).apply()
             }
             .setCancelable(false)
+            .show()
+    }
+
+    private fun maybePromptModelUpgrade(prefs: android.content.SharedPreferences) {
+        val activeKey = "active_model_url"
+        val activeUrl = prefs.getString(activeKey, "").orEmpty()
+        if (activeUrl == defaultLlmModelFile.url) return
+        if (prefs.getBoolean("upgrade_prompt_shown_qwen25_3b", false)) return
+
+        AlertDialog.Builder(this)
+            .setTitle("AIモデルのアップデート")
+            .setMessage(
+                "現在のモデルを $defaultLlmModelDisplayName に切り替え可能です。" +
+                    "\n日本語整形の品質が向上します（約2.0GBの再ダウンロード、Wi-Fi推奨）。"
+            )
+            .setPositiveButton("アップデート") { _, _ ->
+                prefs.edit()
+                    .putBoolean("upgrade_prompt_shown_qwen25_3b", true)
+                    .apply()
+                startLlmDownload()
+            }
+            .setNegativeButton("後で") { _, _ ->
+                prefs.edit()
+                    .putBoolean("upgrade_prompt_shown_qwen25_3b", true)
+                    .apply()
+            }
             .show()
     }
 
@@ -314,6 +343,10 @@ class SettingsActivity : AppCompatActivity() {
             val result = runCatching { installDefaultLlmModel() }
             result.onSuccess { bytes ->
                 configRepository.setLlmModelUri("")
+                getSharedPreferences("onboarding", MODE_PRIVATE)
+                    .edit()
+                    .putString("active_model_url", defaultLlmModelFile.url)
+                    .apply()
                 toast("モデルを取得しました (${formatBytes(bytes)})")
             }.onFailure { error ->
                 toast("取得失敗: ${error.message ?: "不明なエラー"}")

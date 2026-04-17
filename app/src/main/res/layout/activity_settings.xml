@@ -121,7 +121,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Gemma 2 2B を自動取得（Wi-Fi推奨）" />
+            android:text="Qwen 2.5 3B を自動取得（Wi-Fi推奨）" />
 
         <!-- Step 4: ASR model (optional) -->
         <TextView

@@ -95,7 +95,11 @@ class LocalLlmInferenceEngine(
                 strength = request.strength,
                 inputChars = input.length
             ),
-            "stop" to listOf("</s>", "\n\n##", "\n\n---", "<end_of_turn>", "<eos>")
+            "stop" to listOf(
+                "</s>", "\n\n##", "\n\n---",
+                "<end_of_turn>", "<eos>",
+                "<|im_end|>", "<|endoftext|>"
+            )
         )
         val completion = completionMutex.withLock {
             synchronized(lock) {
@@ -236,16 +240,32 @@ class LocalLlmInferenceEngine(
 
     private fun buildPrompt(request: Request): String {
         val rawPrompt = buildRawPrompt(request)
-        return if (isGemmaModel()) wrapGemmaTemplate(rawPrompt) else rawPrompt
+        return when (detectModelFamily()) {
+            ModelFamily.QWEN -> wrapQwenChatML(rawPrompt)
+            ModelFamily.GEMMA -> wrapGemmaTemplate(rawPrompt)
+            ModelFamily.GENERIC -> rawPrompt
+        }
     }
 
-    private fun isGemmaModel(): Boolean {
+    private enum class ModelFamily { QWEN, GEMMA, GENERIC }
+
+    private fun detectModelFamily(): ModelFamily {
         val path = loadedModelPath.lowercase()
-        return path.contains("gemma")
+        return when {
+            path.contains("qwen") -> ModelFamily.QWEN
+            path.contains("gemma") -> ModelFamily.GEMMA
+            else -> ModelFamily.GENERIC
+        }
     }
 
     private fun wrapGemmaTemplate(prompt: String): String {
         return "<start_of_turn>user\n$prompt\n<end_of_turn>\n<start_of_turn>model\n"
+    }
+
+    private fun wrapQwenChatML(prompt: String): String {
+        return "<|im_start|>system\nあなたは日本語の音声入力を整形するアシスタントです。指示に厳密に従い、余計な説明は出力しません。<|im_end|>\n" +
+            "<|im_start|>user\n$prompt<|im_end|>\n" +
+            "<|im_start|>assistant\n"
     }
 
     private fun buildRawPrompt(request: Request): String {
