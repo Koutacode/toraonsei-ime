@@ -65,8 +65,9 @@ class SettingsActivity : AppCompatActivity() {
         )
         private val defaultLlmModelFile = RemoteModelFile(
             fileName = "model.gguf",
-            url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+            url = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=true"
         )
+        private const val defaultLlmModelDisplayName = "Gemma 2 2B Instruct (Q4_K_M, ~1.6GB)"
     }
 
     private lateinit var configRepository: AppConfigRepository
@@ -369,6 +370,8 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
+        maybePromptInitialModelDownload()
+
         lifecycleScope.launch {
             configRepository.configFlow.collectLatest { config ->
                 unlocked = config.unlocked
@@ -574,13 +577,68 @@ class SettingsActivity : AppCompatActivity() {
         downloadedBytes.coerceAtLeast(totalBytes)
     }
 
+    private fun maybePromptInitialModelDownload() {
+        val status = LocalLlmSupport.detect(this)
+        if (status.available) return
+        val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
+        val alreadyPrompted = prefs.getBoolean("llm_prompt_shown", false)
+        if (alreadyPrompted) return
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("AIモデル未インストール")
+            .setMessage(
+                "音声整形のためAIモデル ($defaultLlmModelDisplayName) が必要です。\n" +
+                    "Wi-Fi接続での初回ダウンロードを推奨します。\n\n" +
+                    "ダウンロードしますか？"
+            )
+            .setPositiveButton("ダウンロード") { _, _ ->
+                prefs.edit().putBoolean("llm_prompt_shown", true).apply()
+                triggerLlmModelDownload()
+            }
+            .setNeutralButton("後で") { _, _ ->
+                prefs.edit().putBoolean("llm_prompt_shown", true).apply()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun triggerLlmModelDownload() {
+        lifecycleScope.launch {
+            if (!tryBeginModelDownload()) return@launch
+            localLlmStatusText.text = "状態: 自動取得中..."
+            localLlmPathText.text = "取得元: $defaultLlmModelDisplayName"
+            runCatching {
+                installDefaultLlmModel()
+            }.onSuccess { bytes ->
+                configRepository.setLlmModelUri("")
+                updateLocalLlmStatus()
+                toast("LLMモデルを取得しました（${formatBytes(bytes)}）")
+            }.onFailure { error ->
+                updateLocalLlmStatus()
+                toast("LLM自動取得に失敗: ${error.message ?: "不明なエラー"}")
+            }
+            endModelDownload()
+        }
+    }
+
     private suspend fun installDefaultLlmModel(): Long = withContext(Dispatchers.IO) {
         val targetDir = File(filesDir, "local_llm").apply { mkdirs() }
         val targetFile = File(targetDir, defaultLlmModelFile.fileName)
         val bytes = downloadFileFromUrl(
             url = defaultLlmModelFile.url,
             output = targetFile,
-            userAgent = llmDownloadUserAgent
+            userAgent = llmDownloadUserAgent,
+            onProgress = { downloaded, total ->
+                val pct = if (total > 0) (downloaded * 100 / total).toInt() else -1
+                val progressText = if (pct >= 0) {
+                    "状態: DL中 $pct% (${formatBytes(downloaded)} / ${formatBytes(total)})"
+                } else {
+                    "状態: DL中 (${formatBytes(downloaded)})"
+                }
+                lifecycleScope.launch(Dispatchers.Main) {
+                    localLlmStatusText.text = progressText
+                }
+            }
         )
         if (bytes <= 0L || targetFile.length() <= 0L) {
             error("LLMモデルが空です")
@@ -591,7 +649,8 @@ class SettingsActivity : AppCompatActivity() {
     private fun downloadFileFromUrl(
         url: String,
         output: File,
-        userAgent: String
+        userAgent: String,
+        onProgress: ((downloaded: Long, total: Long) -> Unit)? = null
     ): Long {
         val parent = output.parentFile ?: error("保存先フォルダを作成できません")
         if (!parent.exists() && !parent.mkdirs()) {
@@ -613,9 +672,27 @@ class SettingsActivity : AppCompatActivity() {
             if (conn.responseCode !in 200..299) {
                 error("HTTP ${conn.responseCode}")
             }
+            val contentLength = conn.contentLengthLong
             conn.inputStream.use { input ->
                 FileOutputStream(tempFile).use { outputStream ->
-                    input.copyTo(outputStream)
+                    if (onProgress != null) {
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        var lastReport = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            outputStream.write(buffer, 0, read)
+                            downloaded += read
+                            if (downloaded - lastReport >= 512 * 1024) {
+                                onProgress(downloaded, contentLength)
+                                lastReport = downloaded
+                            }
+                        }
+                        onProgress(downloaded, contentLength)
+                    } else {
+                        input.copyTo(outputStream)
+                    }
                 }
             }
             if (tempFile.length() <= 0L) {

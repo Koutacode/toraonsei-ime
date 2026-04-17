@@ -11,7 +11,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
@@ -25,6 +27,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.view.isVisible
+import androidx.window.layout.FoldingFeature
 import com.toraonsei.R
 import com.toraonsei.engine.HybridLocalInferenceEngine
 import com.toraonsei.engine.LocalLlmInferenceEngine
@@ -77,6 +80,9 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     private var formatStrength = FormatStrength.NORMAL
 
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var foldableController: FoldableLayoutController? = null
+    private var lastFoldingFeature: FoldingFeature? = null
+    private var lastWindowBounds: Rect = Rect()
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var initialX = 0
@@ -96,6 +102,17 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
                 formatStrength = FormatStrength.fromConfig(config.formatStrength)
             }
         }
+
+        foldableController = FoldableLayoutController(this, serviceScope) { folding, bounds ->
+            lastFoldingFeature = folding
+            lastWindowBounds = bounds
+            adjustOverlayForFoldable()
+        }.also { it.start() }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        adjustOverlayForFoldable()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -114,12 +131,32 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
 
     override fun onDestroy() {
         stopRecording()
+        foldableController?.stop()
+        foldableController = null
         removeOverlay()
         speechController.destroy()
         localLlmEngine.release()
         formatJob?.cancel()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun adjustOverlayForFoldable() {
+        val params = layoutParams ?: return
+        val view = overlayView ?: return
+        val folding = lastFoldingFeature
+        val bounds = lastWindowBounds.takeIf { !it.isEmpty } ?: return
+        val bubblePx = (72 * resources.displayMetrics.density).toInt()
+
+        if (folding != null && folding.isSeparating) {
+            val overlaps = FoldableLayoutController.isBubbleOverHinge(params, bubblePx, bounds, folding)
+            if (overlaps) {
+                val hingeBottom = folding.bounds.bottom
+                val marginPx = (24 * resources.displayMetrics.density).toInt()
+                params.y = (bounds.bottom - hingeBottom + marginPx).coerceAtLeast(marginPx)
+                runCatching { windowManager.updateViewLayout(view, params) }
+            }
+        }
     }
 
     // region SpeechController.Callback

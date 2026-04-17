@@ -29,6 +29,16 @@ class TextInjectionAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return false
         val focused = findFocusedEditableNode(root)
         if (focused != null) {
+            if (isSensitiveField(focused)) {
+                focused.recycle()
+                root.recycle()
+                android.widget.Toast.makeText(
+                    this,
+                    "パスワード/認証欄には挿入できません",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                return false
+            }
             val result = performTextInjection(focused, text)
             focused.recycle()
             root.recycle()
@@ -36,6 +46,33 @@ class TextInjectionAccessibilityService : AccessibilityService() {
         }
         root.recycle()
         return false
+    }
+
+    private fun isSensitiveField(node: AccessibilityNodeInfo): Boolean {
+        if (node.isPassword) return true
+        val inputType = node.inputType
+        val variation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+        val textPasswordVariations = setOf(
+            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        )
+        if ((inputType and android.text.InputType.TYPE_MASK_CLASS) ==
+            android.text.InputType.TYPE_CLASS_TEXT &&
+            variation in textPasswordVariations
+        ) {
+            return true
+        }
+        if ((inputType and android.text.InputType.TYPE_MASK_CLASS) ==
+            android.text.InputType.TYPE_CLASS_NUMBER &&
+            variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        ) {
+            return true
+        }
+        val hint = node.hintText?.toString()?.lowercase().orEmpty()
+        val contentDesc = node.contentDescription?.toString()?.lowercase().orEmpty()
+        val sensitiveHints = listOf("password", "パスワード", "暗証", "pin", "認証コード", "verification")
+        return sensitiveHints.any { hint.contains(it) || contentDesc.contains(it) }
     }
 
     private fun findFocusedEditableNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
