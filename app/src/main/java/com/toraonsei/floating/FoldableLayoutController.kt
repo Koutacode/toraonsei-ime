@@ -20,13 +20,19 @@ class FoldableLayoutController(
 
     fun start() {
         if (job?.isActive == true) return
-        val tracker = WindowInfoTracker.getOrCreate(context)
         job = scope.launch {
-            tracker.windowLayoutInfo(context).collectLatest { info ->
-                val folding = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
-                val bounds = WindowMetricsCalculator.getOrCreate()
-                    .computeCurrentWindowMetrics(context).bounds
-                onFoldingChanged(folding, bounds)
+            runCatching {
+                val tracker = WindowInfoTracker.getOrCreate(context)
+                tracker.windowLayoutInfo(context).collectLatest { info ->
+                    val folding = info.displayFeatures
+                        .filterIsInstance<FoldingFeature>()
+                        .firstOrNull()
+                    val bounds = runCatching {
+                        WindowMetricsCalculator.getOrCreate()
+                            .computeCurrentWindowMetrics(context).bounds
+                    }.getOrDefault(Rect())
+                    onFoldingChanged(folding, bounds)
+                }
             }
         }
     }

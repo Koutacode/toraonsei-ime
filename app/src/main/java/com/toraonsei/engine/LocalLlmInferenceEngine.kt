@@ -372,10 +372,16 @@ class LocalLlmInferenceEngine(
             .replace(Regex("```[\\s\\S]*?```"), "")
             .trim()
 
-        out = out
-            .replace(Regex("^(整形後|出力|結果|result|translation)[:：]\\s*", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .trim('"', '「', '」')
+        val labelPattern = Regex(
+            "^(整形結果|整形後|整形済み|整形テキスト|整形文|整形した文|出力|結果|回答|答え|translation|translated|formatted|output|answer|result)\\s*[:：\\n]\\s*",
+            RegexOption.IGNORE_CASE
+        )
+        repeat(3) {
+            val stripped = out.replace(labelPattern, "").trim()
+            if (stripped == out) return@repeat
+            out = stripped
+        }
+        out = out.trim().trim('"', '「', '」', '『', '』')
 
         if (out.isBlank()) return ""
 

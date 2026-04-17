@@ -16,6 +16,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -123,11 +124,19 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
             }
         }
 
-        foldableController = FoldableLayoutController(this, serviceScope) { folding, bounds ->
-            lastFoldingFeature = folding
-            lastWindowBounds = bounds
-            adjustOverlayForFoldable()
-        }.also { it.start() }
+        val foldableContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
+            }.getOrNull()
+        } else null
+
+        if (foldableContext != null) {
+            foldableController = FoldableLayoutController(foldableContext, serviceScope) { folding, bounds ->
+                lastFoldingFeature = folding
+                lastWindowBounds = bounds
+                adjustOverlayForFoldable()
+            }.also { it.start() }
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -282,6 +291,10 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
             showActions(true)
             val indicator = if (result.usedLlm) "AI整形" else "素のテキスト"
             updateStatus("$indicator 完了 (${formattedResult.length}文字)")
+            if (formattedResult.isNotBlank()) {
+                delay(160)
+                performInsert()
+            }
         }
     }
 
@@ -398,7 +411,8 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     private fun showOverlay() {
         if (overlayView != null) return
 
-        val inflater = LayoutInflater.from(this)
+        val themedContext = ContextThemeWrapper(this, R.style.Theme_ToraOnsei)
+        val inflater = LayoutInflater.from(themedContext)
         val view = inflater.inflate(R.layout.floating_voice_overlay, null)
         overlayView = view
 
