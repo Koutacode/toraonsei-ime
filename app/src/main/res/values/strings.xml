@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">トラ音声IME</string>
-    <string name="ime_name">トラ音声入力キーボード</string>
-    <string name="subtype_ja">日本語 音声入力</string>
-    <string name="accessibility_service_description">トラ音声IMEのフローティング音声入力機能です。どのアプリの入力欄にも音声で入力できます。</string>
+    <string name="app_name">トラ音声入力</string>
+    <string name="accessibility_service_description">トラ音声入力のフローティング機能。整形済みテキストを任意アプリの入力欄に挿入します。</string>
     <string name="floating_notification_channel">フローティング音声入力</string>
     <string name="floating_notification_title">フローティング音声入力が有効です</string>
-    <string name="floating_notification_text">タップして停止</string>
+    <string name="floating_notification_text">タップで設定画面を開く</string>
+    <string name="passcode_title">ロック解除</string>
+    <string name="passcode_description">パスコード（4桁）を入力してください</string>
+    <string name="passcode_hint">パスコード</string>
+    <string name="passcode_unlock">解除</string>
+    <string name="passcode_error">パスコードが違います</string>
 </resources>

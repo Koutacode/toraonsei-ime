@@ -6,25 +6,28 @@
     android:padding="12dp">
 
     <EditText
-        android:id="@+id/dialogWordInput"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="単語"
-        android:inputType="text" />
-
-    <EditText
         android:id="@+id/dialogReadingInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:hint="読み（かな）"
+        android:inputType="text"
+        android:autofillHints="" />
+
+    <EditText
+        android:id="@+id/dialogWordInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="読み(かな)"
-        android:inputType="text" />
+        android:hint="書き（変換後）"
+        android:inputType="text"
+        android:autofillHints="" />
 
     <EditText
         android:id="@+id/dialogPriorityInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="優先度(任意)"
-        android:inputType="numberSigned" />
+        android:hint="優先度（任意）"
+        android:inputType="numberSigned"
+        android:autofillHints="" />
 </LinearLayout>

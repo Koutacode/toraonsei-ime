@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="@color/keyboard_bg">
+
+    <ImageView
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:src="@drawable/ic_tiger_launcher"
+        android:contentDescription="@string/app_name"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/passcodeTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/passcode_title"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary" />
+
+    <TextView
+        android:id="@+id/passcodeDescription"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/passcode_description"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="24dp" />
+
+    <EditText
+        android:id="@+id/passcodeInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberPassword"
+        android:maxLength="4"
+        android:hint="@string/passcode_hint"
+        android:textSize="26sp"
+        android:textAlignment="center"
+        android:gravity="center"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:backgroundTint="@color/text_hint"
+        android:autofillHints="" />
+
+    <TextView
+        android:id="@+id/passcodeError"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/passcode_error"
+        android:textColor="@color/recording_active"
+        android:visibility="gone"
+        android:layout_marginTop="8dp" />
+
+    <Button
+        android:id="@+id/passcodeUnlockButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/passcode_unlock"
+        android:layout_marginTop="24dp" />
+</LinearLayout>

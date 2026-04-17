@@ -18,14 +18,7 @@
         android:theme="@style/Theme.ToraOnsei">
 
         <activity
-            android:name=".dict.DictionaryActivity"
-            android:exported="false" />
-        <activity
-            android:name=".dict.DictionaryMaintenanceActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".settings.SettingsActivity"
+            android:name=".lock.PasscodeLockActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -33,22 +26,14 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".ime.VoiceImeService"
-            android:directBootAware="true"
-            android:exported="true"
-            android:foregroundServiceType="microphone"
-            android:label="@string/ime_name"
-            android:permission="android.permission.BIND_INPUT_METHOD"
-            android:theme="@style/Theme.ToraOnsei.Ime">
-            <intent-filter>
-                <action android:name="android.view.InputMethod" />
-            </intent-filter>
+        <activity
+            android:name=".settings.SettingsActivity"
+            android:exported="false" />
 
-            <meta-data
-                android:name="android.view.im"
-                android:resource="@xml/method" />
-        </service>
+        <activity
+            android:name=".dict.DictionaryActivity"
+            android:exported="false" />
+
         <service
             android:name=".floating.FloatingVoiceService"
             android:exported="false"

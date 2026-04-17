@@ -8,45 +8,48 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="単語帳"
-        android:textSize="20sp"
+        android:text="ユーザー辞書"
+        android:textSize="22sp"
         android:textStyle="bold" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="読み(かな)は必須。重複語は同一単語で上書き保存されます。" />
-
-    <EditText
-        android:id="@+id/wordInput"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:hint="単語"
-        android:inputType="text" />
+        android:layout_marginTop="6dp"
+        android:text="読み（音声入力での聞こえ方）→ 書き（実際に出したい表記）のペアで登録します。\n例: 読み「やまだ」→ 書き「山田」" />
 
     <EditText
         android:id="@+id/readingInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:hint="読み（例: やまだ）"
+        android:inputType="text"
+        android:autofillHints="" />
+
+    <EditText
+        android:id="@+id/wordInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="読み(かな)"
-        android:inputType="text" />
+        android:hint="書き（変換後）（例: 山田）"
+        android:inputType="text"
+        android:autofillHints="" />
 
     <EditText
         android:id="@+id/priorityInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="優先度(任意: 0〜)"
-        android:inputType="numberSigned" />
+        android:hint="優先度（任意、省略可）"
+        android:inputType="numberSigned"
+        android:autofillHints="" />
 
     <Button
         android:id="@+id/addButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:text="追加 / 更新" />
 
     <LinearLayout
@@ -74,8 +77,8 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="一覧（タップで編集、長押しで削除）"
+        android:layout_marginTop="14dp"
+        android:text="登録済み（タップで編集、長押しで削除）"
         android:textStyle="bold" />
 
     <ListView

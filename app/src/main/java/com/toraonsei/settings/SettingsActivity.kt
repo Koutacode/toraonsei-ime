@@ -7,32 +7,29 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.inputmethod.InputMethodManager
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.EditText
-import android.widget.Spinner
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
 import com.toraonsei.R
 import com.toraonsei.dict.DictionaryActivity
-import com.toraonsei.dict.DictionaryMaintenanceActivity
-import com.toraonsei.format.EnglishStyle
-import com.toraonsei.format.FormatStrength
-import com.toraonsei.format.LocalLlmSupport
+import com.toraonsei.engine.UsageSceneMode
 import com.toraonsei.floating.FloatingVoiceService
 import com.toraonsei.floating.TextInjectionAccessibilityService
+import com.toraonsei.format.LocalLlmSupport
+import com.toraonsei.lock.PasscodeLockActivity
 import com.toraonsei.speech.SherpaAsrModelSupport
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -53,547 +50,241 @@ class SettingsActivity : AppCompatActivity() {
         private const val modelConnectTimeoutMs = 35_000
         private const val modelReadTimeoutMs = 120_000
 
-        private val defaultAsrModelFiles = listOf(
-            RemoteModelFile(
-                fileName = "tokens.txt",
-                url = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt?download=true"
-            ),
-            RemoteModelFile(
-                fileName = "model-sense-voice-ja-int8.onnx",
-                url = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx?download=true"
-            )
-        )
         private val defaultLlmModelFile = RemoteModelFile(
             fileName = "model.gguf",
             url = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=true"
         )
-        private const val defaultLlmModelDisplayName = "Gemma 2 2B Instruct (Q4_K_M, ~1.6GB)"
+        private const val defaultLlmModelDisplayName = "Gemma 2 2B Instruct (Q4_K_M, 約1.6GB)"
     }
 
     private lateinit var configRepository: AppConfigRepository
-    private var unlocked = false
-    private var suppressPreferenceEvents = false
-    private var suppressRecognitionNoiseFilterSwitchEvent = false
-    private var isModelDownloadRunning = false
 
-    private lateinit var lockStatusText: TextView
-    private lateinit var localOnlyModeStatusText: TextView
-    private lateinit var passcodeEdit: EditText
-    private lateinit var unlockButton: Button
-    private lateinit var lockButton: Button
-    private lateinit var openImeSettingsButton: Button
-    private lateinit var openImePickerButton: Button
     private lateinit var requestPermissionButton: Button
-    private lateinit var openDictionaryButton: Button
-    private lateinit var openDictionaryMaintenanceButton: Button
-    private lateinit var importAsrModelButton: Button
-    private lateinit var importLlmModelButton: Button
-    private lateinit var formatStrengthSpinner: Spinner
-    private lateinit var englishStyleSpinner: Spinner
-    private lateinit var recognitionNoiseFilterSwitch: SwitchCompat
-    private lateinit var recognitionNoiseFilterStatusText: TextView
-    private lateinit var asrModelStatusText: TextView
-    private lateinit var asrModelSecondPassText: TextView
-    private lateinit var asrModelPathText: TextView
+    private lateinit var openOverlayPermissionButton: Button
+    private lateinit var openAccessibilitySettingsButton: Button
+    private lateinit var sceneModeGroup: RadioGroup
+    private lateinit var sceneModeMessage: RadioButton
+    private lateinit var sceneModeWork: RadioButton
     private lateinit var localLlmStatusText: TextView
     private lateinit var localLlmPathText: TextView
+    private lateinit var importLlmModelButton: Button
+    private lateinit var asrModelStatusText: TextView
+    private lateinit var importAsrModelButton: Button
+    private lateinit var openDictionaryButton: Button
     private lateinit var floatingStatusText: TextView
     private lateinit var startFloatingButton: Button
     private lateinit var stopFloatingButton: Button
-    private lateinit var openAccessibilitySettingsButton: Button
+    private lateinit var lockButton: Button
 
-    private val formatStrengthLabels = listOf("弱め", "標準", "強め")
-    private val formatStrengthValues = listOf(
-        FormatStrength.LIGHT.configValue,
-        FormatStrength.NORMAL.configValue,
-        FormatStrength.STRONG.configValue
-    )
-    private val englishStyleLabels = listOf("ナチュラル", "カジュアル", "フォーマル")
-    private val englishStyleValues = listOf(
-        EnglishStyle.NATURAL.configValue,
-        EnglishStyle.CASUAL.configValue,
-        EnglishStyle.FORMAL.configValue
-    )
+    private var isDownloading = false
+    private var suppressSceneSwitch = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        val audioGranted = result[Manifest.permission.RECORD_AUDIO] == true ||
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            result[Manifest.permission.POST_NOTIFICATIONS] == true ||
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
-        when {
-            audioGranted && notificationGranted -> {
-                toast("マイク/通知権限を許可しました")
-            }
-            audioGranted -> {
-                toast("マイク権限は許可済み。通知権限は未許可です")
-            }
-            else -> {
-                toast("マイク権限がないと音声入力できません")
-            }
-        }
+        val audioOk = result[Manifest.permission.RECORD_AUDIO] == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (audioOk) toast("権限を許可しました") else toast("マイク権限がないと録音できません")
     }
 
-    private val importLlmModelLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null || !ensureUnlocked()) return@registerForActivityResult
-        lifecycleScope.launch {
-            runCatching {
-                importLocalLlmModel(uri)
-            }.onSuccess { bytes ->
-                lifecycleScope.launch {
-                    configRepository.setLlmModelUri(uri.toString())
-                }
-                updateLocalLlmStatus()
-                toast("LLMモデルを設定しました (${formatBytes(bytes)})")
-            }.onFailure { error ->
-                toast("LLMモデル設定に失敗: ${error.message ?: "不明なエラー"}")
-            }
-        }
-    }
-
-    private val importAsrModelLauncher = registerForActivityResult(
+    private val pickAsrTreeLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri == null || !ensureUnlocked()) return@registerForActivityResult
-        lifecycleScope.launch {
-            runCatching {
-                importAsrModelFromTree(uri)
-            }.onSuccess { copied ->
-                lifecycleScope.launch {
-                    configRepository.setAsrModelTreeUri(uri.toString())
-                }
-                updateAsrModelStatus()
-                toast("ASRモデルを設定しました ($copied ファイル)")
-            }.onFailure { error ->
-                toast("ASRモデル設定に失敗: ${error.message ?: "不明なエラー"}")
-            }
-        }
-    }
-
-    private val importAsrFilesLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isNullOrEmpty() || !ensureUnlocked()) return@registerForActivityResult
-        lifecycleScope.launch {
-            runCatching {
-                importAsrModelFromUris(uris)
-            }.onSuccess { copied ->
-                lifecycleScope.launch {
-                    configRepository.setAsrModelTreeUri("")
-                }
-                updateAsrModelStatus()
-                toast("ASRモデルをファイル選択で設定しました ($copied ファイル)")
-            }.onFailure { error ->
-                toast("ASRファイル設定に失敗: ${error.message ?: "不明なエラー"}")
-            }
-        }
+        if (uri != null) startAsrInstallFromTree(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_settings)
-        configRepository = AppConfigRepository(this)
-        purgeUnusedLocalAsrModels()
-
-        lockStatusText = findViewById(R.id.lockStatusText)
-        localOnlyModeStatusText = findViewById(R.id.localOnlyModeStatusText)
-        passcodeEdit = findViewById(R.id.passcodeEdit)
-        unlockButton = findViewById(R.id.unlockButton)
-        lockButton = findViewById(R.id.lockButton)
-        openImeSettingsButton = findViewById(R.id.openImeSettingsButton)
-        openImePickerButton = findViewById(R.id.openImePickerButton)
-        requestPermissionButton = findViewById(R.id.requestPermissionButton)
-        openDictionaryButton = findViewById(R.id.openDictionaryButton)
-        openDictionaryMaintenanceButton = findViewById(R.id.openDictionaryMaintenanceButton)
-        importAsrModelButton = findViewById(R.id.importAsrModelButton)
-        importLlmModelButton = findViewById(R.id.importLlmModelButton)
-        formatStrengthSpinner = findViewById(R.id.formatStrengthSpinner)
-        englishStyleSpinner = findViewById(R.id.englishStyleSpinner)
-        recognitionNoiseFilterSwitch = findViewById(R.id.recognitionNoiseFilterSwitch)
-        recognitionNoiseFilterStatusText = findViewById(R.id.recognitionNoiseFilterStatusText)
-        asrModelStatusText = findViewById(R.id.asrModelStatusText)
-        asrModelSecondPassText = findViewById(R.id.asrModelSecondPassText)
-        asrModelPathText = findViewById(R.id.asrModelPathText)
-        localLlmStatusText = findViewById(R.id.localLlmStatusText)
-        localLlmPathText = findViewById(R.id.localLlmPathText)
-        floatingStatusText = findViewById(R.id.floatingStatusText)
-        startFloatingButton = findViewById(R.id.startFloatingButton)
-        stopFloatingButton = findViewById(R.id.stopFloatingButton)
-        openAccessibilitySettingsButton = findViewById(R.id.openAccessibilitySettingsButton)
-        importAsrModelButton.text = "ローカルASR（現在未使用）"
-        importLlmModelButton.text = "ローカルLLMを自動取得（1タップ）"
-
-        localOnlyModeStatusText.text = "音声認識: システムASR固定（速度優先）"
-
-        setupPreferenceSpinners()
-
-        openImeSettingsButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        }
-
-        openImePickerButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showInputMethodPicker()
-        }
-
-        requestPermissionButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            ensureMicrophonePermission()
-        }
-
-        openDictionaryButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            startActivity(Intent(this, DictionaryActivity::class.java))
-        }
-
-        openDictionaryMaintenanceButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            startActivity(Intent(this, DictionaryMaintenanceActivity::class.java))
-        }
-
-        importAsrModelButton.setOnClickListener {
-            toast("ローカルASRは現在未使用です（システムASR固定）")
-        }
-        importAsrModelButton.setOnLongClickListener {
-            toast("ローカルASRは現在未使用です（システムASR固定）")
-            true
-        }
-
-        importLlmModelButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            lifecycleScope.launch {
-                if (!tryBeginModelDownload()) return@launch
-                localLlmStatusText.text = "状態: 自動取得中..."
-                localLlmPathText.text = "取得元: ${defaultLlmModelFile.fileName}（数分かかる場合があります）"
-                runCatching {
-                    installDefaultLlmModel()
-                }.onSuccess { bytes ->
-                    configRepository.setLlmModelUri("")
-                    updateLocalLlmStatus()
-                    toast("LLMモデルを自動設定しました（${formatBytes(bytes)}）")
-                }.onFailure { error ->
-                    updateLocalLlmStatus()
-                    toast("LLM自動取得に失敗: ${error.message ?: "不明なエラー"}")
-                }
-                endModelDownload()
-            }
-        }
-        importLlmModelButton.setOnLongClickListener {
-            if (!ensureUnlocked()) return@setOnLongClickListener true
-            toast("長押し: 手動設定（ggufファイル選択）")
-            importLlmModelLauncher.launch(arrayOf("*/*"))
-            true
-        }
-
-        unlockButton.setOnClickListener {
-            val passcode = passcodeEdit.text?.toString().orEmpty()
-            lifecycleScope.launch {
-                val ok = configRepository.unlockWithPasscode(passcode)
-                if (ok) {
-                    passcodeEdit.setText("")
-                    toast("ロック解除しました")
-                } else {
-                    toast("パスワードが違います")
-                }
-            }
-        }
-
-        lockButton.setOnClickListener {
-            lifecycleScope.launch {
-                configRepository.lock()
-                toast("再ロックしました")
-            }
-        }
-
-        recognitionNoiseFilterSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (suppressRecognitionNoiseFilterSwitchEvent) return@setOnCheckedChangeListener
-            if (!ensureUnlocked()) return@setOnCheckedChangeListener
-            lifecycleScope.launch {
-                configRepository.setRecognitionNoiseFilterEnabled(isChecked)
-                updateRecognitionNoiseFilterStatus(isChecked)
-                toast(
-                    if (isChecked) {
-                        "認識テキスト補正を有効化しました"
-                    } else {
-                        "認識テキスト補正を無効化しました"
-                    }
-                )
-            }
-        }
-
-        startFloatingButton.setOnClickListener {
-            if (!ensureUnlocked()) return@setOnClickListener
-            if (!Settings.canDrawOverlays(this)) {
-                toast("オーバーレイ権限が必要です。設定画面を開きます")
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-                startActivity(intent)
-                return@setOnClickListener
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-                toast("マイク権限が必要です")
-                ensureMicrophonePermission()
-                return@setOnClickListener
-            }
-            FloatingVoiceService.start(this)
-            updateFloatingStatus()
-            toast("フローティング音声入力を起動しました")
-        }
-
-        stopFloatingButton.setOnClickListener {
-            FloatingVoiceService.stop(this)
-            updateFloatingStatus()
-            toast("フローティング音声入力を停止しました")
-        }
-
-        openAccessibilitySettingsButton.setOnClickListener {
-            toast("「トラ音声IME」を有効にしてください")
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }
-
-        maybePromptInitialModelDownload()
+        configRepository = AppConfigRepository(applicationContext)
 
         lifecycleScope.launch {
-            configRepository.configFlow.collectLatest { config ->
-                unlocked = config.unlocked
-                lockStatusText.text = if (config.unlocked) {
-                    "状態: 解除済み（この端末で利用可能）"
-                } else {
-                    "状態: ロック中（パスワード 0623 で解除）"
-                }
-
-                suppressRecognitionNoiseFilterSwitchEvent = true
-                recognitionNoiseFilterSwitch.isChecked = config.recognitionNoiseFilterEnabled
-                suppressRecognitionNoiseFilterSwitchEvent = false
-                updateRecognitionNoiseFilterStatus(config.recognitionNoiseFilterEnabled)
-
-                updateSpinnerSelections(config)
-                updateAsrModelStatus()
-                updateLocalLlmStatus()
-                applyLockUi(config.unlocked)
+            val config = configRepository.configFlow.first()
+            if (!config.unlocked) {
+                startActivity(Intent(this@SettingsActivity, PasscodeLockActivity::class.java))
+                finish()
+                return@launch
             }
+            setContentView(R.layout.activity_settings)
+            bindViews()
+            wireListeners()
+            observeConfig()
+            maybePromptInitialModelDownload()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        updateAsrModelStatus()
-        updateLocalLlmStatus()
-        updateFloatingStatus()
+        if (::localLlmStatusText.isInitialized) {
+            updateLocalLlmStatus()
+            updateAsrStatus()
+            updateFloatingStatus()
+        }
     }
 
-    private fun updateFloatingStatus() {
-        val overlayOk = Settings.canDrawOverlays(this)
-        val accessibilityOk = TextInjectionAccessibilityService.isAvailable()
-        val statusParts = mutableListOf<String>()
-        if (!overlayOk) statusParts.add("オーバーレイ権限: 未許可")
-        if (!accessibilityOk) statusParts.add("テキスト挿入: 未有効")
-        if (overlayOk && accessibilityOk) statusParts.add("準備完了")
-        floatingStatusText.text = "状態: ${statusParts.joinToString(" / ")}"
-
-        startFloatingButton.isEnabled = unlocked
-        stopFloatingButton.isEnabled = unlocked
-        openAccessibilitySettingsButton.isEnabled = true
+    private fun bindViews() {
+        requestPermissionButton = findViewById(R.id.requestPermissionButton)
+        openOverlayPermissionButton = findViewById(R.id.openOverlayPermissionButton)
+        openAccessibilitySettingsButton = findViewById(R.id.openAccessibilitySettingsButton)
+        sceneModeGroup = findViewById(R.id.sceneModeGroup)
+        sceneModeMessage = findViewById(R.id.sceneModeMessage)
+        sceneModeWork = findViewById(R.id.sceneModeWork)
+        localLlmStatusText = findViewById(R.id.localLlmStatusText)
+        localLlmPathText = findViewById(R.id.localLlmPathText)
+        importLlmModelButton = findViewById(R.id.importLlmModelButton)
+        asrModelStatusText = findViewById(R.id.asrModelStatusText)
+        importAsrModelButton = findViewById(R.id.importAsrModelButton)
+        openDictionaryButton = findViewById(R.id.openDictionaryButton)
+        floatingStatusText = findViewById(R.id.floatingStatusText)
+        startFloatingButton = findViewById(R.id.startFloatingButton)
+        stopFloatingButton = findViewById(R.id.stopFloatingButton)
+        lockButton = findViewById(R.id.lockButton)
     }
 
-    private fun applyLockUi(isUnlocked: Boolean) {
-        val interactive = isUnlocked && !isModelDownloadRunning
-        lockButton.isEnabled = isUnlocked
-        openImeSettingsButton.isEnabled = interactive
-        openImePickerButton.isEnabled = interactive
-        requestPermissionButton.isEnabled = interactive
-        openDictionaryButton.isEnabled = interactive
-        openDictionaryMaintenanceButton.isEnabled = interactive
-        importAsrModelButton.isEnabled = false
-        importLlmModelButton.isEnabled = interactive
-        formatStrengthSpinner.isEnabled = interactive
-        englishStyleSpinner.isEnabled = interactive
-        recognitionNoiseFilterSwitch.isEnabled = interactive
+    private fun wireListeners() {
+        requestPermissionButton.setOnClickListener { requestMicrophoneAndNotification() }
+
+        openOverlayPermissionButton.setOnClickListener {
+            if (Settings.canDrawOverlays(this)) {
+                toast("オーバーレイ権限は許可済みです")
+            } else {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            }
+        }
+
+        openAccessibilitySettingsButton.setOnClickListener {
+            toast("「トラ音声入力」を有効にしてください")
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        sceneModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (suppressSceneSwitch) return@setOnCheckedChangeListener
+            val mode = if (checkedId == R.id.sceneModeWork) UsageSceneMode.WORK else UsageSceneMode.MESSAGE
+            lifecycleScope.launch {
+                configRepository.setUsageSceneMode(mode.configValue)
+            }
+        }
+
+        importLlmModelButton.setOnClickListener { startLlmDownload() }
+        importAsrModelButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Sherpa-ONNX ASR モデル")
+                .setMessage(
+                    "Hugging Faceの Sense Voice 日本語モデルを端末内に配置します。" +
+                        "\nダウンロードするか、手元のフォルダを選択できます。"
+                )
+                .setPositiveButton("自動ダウンロード") { _, _ -> startAsrAutoDownload() }
+                .setNeutralButton("フォルダ選択") { _, _ ->
+                    pickAsrTreeLauncher.launch(null)
+                }
+                .setNegativeButton("キャンセル", null)
+                .show()
+        }
+
+        openDictionaryButton.setOnClickListener {
+            startActivity(Intent(this, DictionaryActivity::class.java))
+        }
+
+        startFloatingButton.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                toast("先にオーバーレイ権限を許可してください")
+                return@setOnClickListener
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                toast("先にマイク権限を許可してください")
+                requestMicrophoneAndNotification()
+                return@setOnClickListener
+            }
+            FloatingVoiceService.start(this)
+            toast("フローティング音声入力を起動しました")
+            updateFloatingStatus()
+        }
+
+        stopFloatingButton.setOnClickListener {
+            FloatingVoiceService.stop(this)
+            toast("停止しました")
+            updateFloatingStatus()
+        }
+
+        lockButton.setOnClickListener {
+            lifecycleScope.launch {
+                configRepository.lock()
+                startActivity(Intent(this@SettingsActivity, PasscodeLockActivity::class.java))
+                finish()
+            }
+        }
     }
 
-    private fun updateRecognitionNoiseFilterStatus(enabled: Boolean) {
-        recognitionNoiseFilterStatusText.text = if (enabled) {
-            "認識補正: 有効（推奨）"
-        } else {
-            "認識補正: 無効"
+    private fun observeConfig() {
+        lifecycleScope.launch {
+            configRepository.configFlow.collectLatest { config ->
+                suppressSceneSwitch = true
+                val mode = UsageSceneMode.fromConfig(config.usageSceneMode)
+                sceneModeMessage.isChecked = mode == UsageSceneMode.MESSAGE
+                sceneModeWork.isChecked = mode == UsageSceneMode.WORK
+                suppressSceneSwitch = false
+                updateLocalLlmStatus()
+                updateAsrStatus()
+                updateFloatingStatus()
+            }
         }
     }
 
     private fun updateLocalLlmStatus() {
         val status = LocalLlmSupport.detect(this)
-        localLlmStatusText.text = if (status.available) {
-            "状態: 設定済み（実行可能）"
+        if (status.available) {
+            localLlmStatusText.text = "状態: 設定済み（${formatBytes(status.modelBytes)}）"
+            localLlmPathText.text = status.modelPath
+            importLlmModelButton.text = "モデルを再取得"
         } else {
-            "状態: 設定済み（内蔵整形エンジンを使用）"
+            localLlmStatusText.text = "状態: 未設定 — ${status.reason}"
+            localLlmPathText.text = "配置先: files/local_llm/model.gguf"
+            importLlmModelButton.text = "Gemma 2 2B を自動取得（Wi-Fi推奨）"
         }
-        localLlmPathText.text = if (status.modelPath.isNotBlank()) {
-            "モデル: ${status.modelPath}\nサイズ: ${formatBytes(status.modelBytes)}"
+    }
+
+    private fun updateAsrStatus() {
+        val sherpa = SherpaAsrModelSupport.detect(this)
+        asrModelStatusText.text = if (sherpa.hasAny) {
+            val rn = sherpa.fast?.name ?: sherpa.accurate?.name ?: "配置済み"
+            "状態: Sherpa-ONNX 使用可 ($rn)"
         } else {
-            "状態詳細: ${status.reason}\n配置先: files/local_llm/*.gguf または externalFiles/local_llm/*.gguf"
+            "状態: システムASR使用中（Sherpa未配置）"
         }
     }
 
-    private fun updateAsrModelStatus() {
-        asrModelStatusText.text = "状態: 設定済み（システム音声認識を使用）"
-        asrModelSecondPassText.text = "高精度再評価: システム認識では対象外"
-        asrModelPathText.text = "ローカルASRは現在未使用です（速度優先方針）"
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        if (bytes <= 0L) return "0 B"
-        val kb = 1024.0
-        val mb = kb * 1024.0
-        val gb = mb * 1024.0
-        return when {
-            bytes >= gb -> String.format("%.2f GB", bytes / gb)
-            bytes >= mb -> String.format("%.1f MB", bytes / mb)
-            bytes >= kb -> String.format("%.1f KB", bytes / kb)
-            else -> "$bytes B"
-        }
-    }
-
-    private fun purgeUnusedLocalAsrModels() {
-        runCatching {
-            File(filesDir, "sherpa_asr").takeIf { it.exists() }?.deleteRecursively()
-        }
-    }
-
-    private fun ensureUnlocked(): Boolean {
-        if (unlocked) return true
-        toast("先にパスワード0623で解除してください")
-        return false
-    }
-
-    private fun ensureMicrophonePermission() {
-        val audioGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
-        if (audioGranted && notificationGranted) {
-            toast("マイク/通知権限は許可済みです")
-            return
-        }
-
-        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
-    }
-
-    private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun tryBeginModelDownload(): Boolean {
-        if (isModelDownloadRunning) {
-            toast("モデル取得中です。完了までお待ちください")
-            return false
-        }
-        isModelDownloadRunning = true
-        applyLockUi(unlocked)
-        return true
-    }
-
-    private fun endModelDownload() {
-        isModelDownloadRunning = false
-        applyLockUi(unlocked)
-    }
-
-    private suspend fun installDefaultAsrModel(): Long = withContext(Dispatchers.IO) {
-        val baseDir = SherpaAsrModelSupport.ensureBaseDir(this@SettingsActivity)
-        val stagingDir = File(baseDir, "_fast_download").apply {
-            if (exists()) deleteRecursively()
-            mkdirs()
-        }
-
-        var downloadedBytes = 0L
-        defaultAsrModelFiles.forEach { remote ->
-            val target = File(stagingDir, remote.fileName)
-            downloadedBytes += downloadFileFromUrl(
-                url = remote.url,
-                output = target,
-                userAgent = asrDownloadUserAgent
-            )
-        }
-
-        val tokens = File(stagingDir, "tokens.txt")
-        val hasOnnx = stagingDir.listFiles()
-            ?.any { it.isFile && it.name.lowercase(Locale.US).endsWith(".onnx") }
-            ?: false
-        if (!tokens.exists() || !hasOnnx) {
-            error("ASRモデル取得に失敗しました（tokens/.onnx不足）")
-        }
-
-        val fastDir = File(baseDir, "fast")
-        if (fastDir.exists()) {
-            fastDir.deleteRecursively()
-        }
-        if (!stagingDir.renameTo(fastDir)) {
-            fastDir.mkdirs()
-            stagingDir.listFiles()?.forEach { file ->
-                file.copyTo(File(fastDir, file.name), overwrite = true)
-            }
-            stagingDir.deleteRecursively()
-        }
-
-        // 単一モデル運用に統一し、過去の second pass 混在を避ける。
-        listOf("accurate", "second_pass", "offline", "asr_accurate", "final").forEach { dirName ->
-            File(baseDir, dirName).takeIf { it.exists() }?.deleteRecursively()
-        }
-
-        val totalBytes = fastDir.listFiles().orEmpty().sumOf { it.length() }
-        if (totalBytes <= 0L) {
-            error("ASRモデル配置後のサイズが0です")
-        }
-        downloadedBytes.coerceAtLeast(totalBytes)
+    private fun updateFloatingStatus() {
+        val overlayOk = Settings.canDrawOverlays(this)
+        val accessibilityOk = TextInjectionAccessibilityService.isAvailable()
+        val parts = mutableListOf<String>()
+        if (!overlayOk) parts += "オーバーレイ権限が必要"
+        if (!accessibilityOk) parts += "アクセシビリティ未有効"
+        if (parts.isEmpty()) parts += "準備完了"
+        floatingStatusText.text = "状態: ${parts.joinToString(" / ")}"
     }
 
     private fun maybePromptInitialModelDownload() {
         val status = LocalLlmSupport.detect(this)
         if (status.available) return
         val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
-        val alreadyPrompted = prefs.getBoolean("llm_prompt_shown", false)
-        if (alreadyPrompted) return
+        if (prefs.getBoolean("llm_prompt_shown", false)) return
 
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("AIモデル未インストール")
             .setMessage(
-                "音声整形のためAIモデル ($defaultLlmModelDisplayName) が必要です。\n" +
-                    "Wi-Fi接続での初回ダウンロードを推奨します。\n\n" +
-                    "ダウンロードしますか？"
+                "音声整形のためAIモデル ($defaultLlmModelDisplayName) が必要です。" +
+                    "\nWi-Fi接続を推奨します。ダウンロードしますか？"
             )
             .setPositiveButton("ダウンロード") { _, _ ->
                 prefs.edit().putBoolean("llm_prompt_shown", true).apply()
-                triggerLlmModelDownload()
+                startLlmDownload()
             }
             .setNeutralButton("後で") { _, _ ->
                 prefs.edit().putBoolean("llm_prompt_shown", true).apply()
@@ -602,22 +293,34 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun triggerLlmModelDownload() {
+    private fun requestMicrophoneAndNotification() {
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions += Manifest.permission.POST_NOTIFICATIONS
+        }
+        requestPermissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun startLlmDownload() {
+        if (isDownloading) {
+            toast("ダウンロード実行中です")
+            return
+        }
+        isDownloading = true
+        importLlmModelButton.isEnabled = false
         lifecycleScope.launch {
-            if (!tryBeginModelDownload()) return@launch
-            localLlmStatusText.text = "状態: 自動取得中..."
+            localLlmStatusText.text = "状態: ダウンロード開始..."
             localLlmPathText.text = "取得元: $defaultLlmModelDisplayName"
-            runCatching {
-                installDefaultLlmModel()
-            }.onSuccess { bytes ->
+            val result = runCatching { installDefaultLlmModel() }
+            result.onSuccess { bytes ->
                 configRepository.setLlmModelUri("")
-                updateLocalLlmStatus()
-                toast("LLMモデルを取得しました（${formatBytes(bytes)}）")
+                toast("モデルを取得しました (${formatBytes(bytes)})")
             }.onFailure { error ->
-                updateLocalLlmStatus()
-                toast("LLM自動取得に失敗: ${error.message ?: "不明なエラー"}")
+                toast("取得失敗: ${error.message ?: "不明なエラー"}")
             }
-            endModelDownload()
+            isDownloading = false
+            importLlmModelButton.isEnabled = true
+            updateLocalLlmStatus()
         }
     }
 
@@ -630,20 +333,179 @@ class SettingsActivity : AppCompatActivity() {
             userAgent = llmDownloadUserAgent,
             onProgress = { downloaded, total ->
                 val pct = if (total > 0) (downloaded * 100 / total).toInt() else -1
-                val progressText = if (pct >= 0) {
+                val text = if (pct >= 0) {
                     "状態: DL中 $pct% (${formatBytes(downloaded)} / ${formatBytes(total)})"
                 } else {
                     "状態: DL中 (${formatBytes(downloaded)})"
                 }
-                lifecycleScope.launch(Dispatchers.Main) {
-                    localLlmStatusText.text = progressText
-                }
+                runOnUiThread { localLlmStatusText.text = text }
             }
         )
         if (bytes <= 0L || targetFile.length() <= 0L) {
             error("LLMモデルが空です")
         }
         targetFile.length()
+    }
+
+    private fun startAsrAutoDownload() {
+        if (isDownloading) {
+            toast("ダウンロード実行中です")
+            return
+        }
+        isDownloading = true
+        importAsrModelButton.isEnabled = false
+        lifecycleScope.launch {
+            asrModelStatusText.text = "状態: ASRダウンロード開始..."
+            val result = runCatching { installDefaultAsrModel() }
+            result.onSuccess { bytes ->
+                toast("ASRモデルを配置しました (${formatBytes(bytes)})")
+            }.onFailure { error ->
+                toast("ASR取得失敗: ${error.message ?: "不明なエラー"}")
+            }
+            isDownloading = false
+            importAsrModelButton.isEnabled = true
+            updateAsrStatus()
+        }
+    }
+
+    private fun startAsrInstallFromTree(uri: Uri) {
+        if (isDownloading) {
+            toast("処理中です")
+            return
+        }
+        isDownloading = true
+        importAsrModelButton.isEnabled = false
+        lifecycleScope.launch {
+            asrModelStatusText.text = "状態: ASRモデル配置中..."
+            val result = runCatching { importAsrModelFromTree(uri) }
+            result.onSuccess { count ->
+                toast("ASRモデルをコピーしました ($count ファイル)")
+            }.onFailure { error ->
+                toast("ASR配置失敗: ${error.message ?: "不明なエラー"}")
+            }
+            isDownloading = false
+            importAsrModelButton.isEnabled = true
+            updateAsrStatus()
+        }
+    }
+
+    private val defaultAsrModelFiles = listOf(
+        RemoteModelFile(
+            fileName = "tokens.txt",
+            url = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt?download=true"
+        ),
+        RemoteModelFile(
+            fileName = "model-sense-voice.onnx",
+            url = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx?download=true"
+        )
+    )
+
+    private suspend fun installDefaultAsrModel(): Long = withContext(Dispatchers.IO) {
+        val baseDir = SherpaAsrModelSupport.ensureBaseDir(this@SettingsActivity)
+        val staging = File(baseDir, "_staging").apply {
+            if (exists()) deleteRecursively()
+            mkdirs()
+        }
+
+        var total = 0L
+        defaultAsrModelFiles.forEach { remote ->
+            val target = File(staging, remote.fileName)
+            total += downloadFileFromUrl(
+                url = remote.url,
+                output = target,
+                userAgent = asrDownloadUserAgent,
+                onProgress = { downloaded, size ->
+                    val pct = if (size > 0) (downloaded * 100 / size).toInt() else -1
+                    val msg = if (pct >= 0) {
+                        "状態: ${remote.fileName} $pct%"
+                    } else {
+                        "状態: ${remote.fileName} DL中"
+                    }
+                    runOnUiThread { asrModelStatusText.text = msg }
+                }
+            )
+        }
+
+        val tokens = File(staging, "tokens.txt")
+        val hasOnnx = staging.listFiles()?.any {
+            it.isFile && it.name.lowercase(Locale.US).endsWith(".onnx")
+        } ?: false
+        if (!tokens.exists() || !hasOnnx) {
+            staging.deleteRecursively()
+            error("ASRモデル取得に失敗しました")
+        }
+
+        val fast = File(baseDir, "fast")
+        if (fast.exists()) fast.deleteRecursively()
+        if (!staging.renameTo(fast)) {
+            fast.mkdirs()
+            staging.listFiles()?.forEach { it.copyTo(File(fast, it.name), overwrite = true) }
+            staging.deleteRecursively()
+        }
+        listOf("accurate", "second_pass", "offline").forEach { name ->
+            File(baseDir, name).takeIf { it.exists() }?.deleteRecursively()
+        }
+
+        val size = fast.listFiles().orEmpty().sumOf { it.length() }
+        if (size <= 0L) error("ASRモデル配置後のサイズが0です")
+        size
+    }
+
+    private suspend fun importAsrModelFromTree(treeUri: Uri): Int = withContext(Dispatchers.IO) {
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        val root = DocumentFile.fromTreeUri(this@SettingsActivity, treeUri)
+            ?: error("フォルダを開けません")
+
+        val modelFiles = mutableListOf<DocumentFile>()
+        collectAsrModelFiles(root, modelFiles)
+        val filtered = modelFiles
+            .filter {
+                val n = it.name?.lowercase(Locale.US).orEmpty()
+                n.endsWith(".onnx") || n == "tokens.txt"
+            }
+            .distinctBy { it.uri.toString() }
+
+        val hasTokens = filtered.any { it.name.equals("tokens.txt", ignoreCase = true) }
+        val hasOnnx = filtered.any { it.name?.lowercase(Locale.US)?.endsWith(".onnx") == true }
+        if (!hasTokens || !hasOnnx) {
+            error("tokens.txt と .onnx を含むフォルダを選択してください")
+        }
+
+        val baseDir = SherpaAsrModelSupport.ensureBaseDir(this@SettingsActivity)
+        val fast = File(baseDir, "fast").apply {
+            if (exists()) deleteRecursively()
+            mkdirs()
+        }
+
+        var copied = 0
+        filtered.forEach { file ->
+            val safeName = sanitizeFileName(file.name ?: return@forEach)
+            val target = File(fast, safeName)
+            contentResolver.openInputStream(file.uri)?.use { input ->
+                FileOutputStream(target).use { output -> input.copyTo(output) }
+            }
+            if (target.length() > 0L) copied += 1
+        }
+        copied
+    }
+
+    private fun collectAsrModelFiles(root: DocumentFile, out: MutableList<DocumentFile>) {
+        root.listFiles().forEach { file ->
+            when {
+                file.isDirectory -> collectAsrModelFiles(file, out)
+                file.isFile -> out += file
+            }
+        }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        return name.replace(Regex("[^A-Za-z0-9._\\-]"), "_").ifBlank { "model.bin" }
     }
 
     private fun downloadFileFromUrl(
@@ -669,38 +531,28 @@ class SettingsActivity : AppCompatActivity() {
         }
         try {
             conn.connect()
-            if (conn.responseCode !in 200..299) {
-                error("HTTP ${conn.responseCode}")
-            }
+            if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
             val contentLength = conn.contentLengthLong
             conn.inputStream.use { input ->
-                FileOutputStream(tempFile).use { outputStream ->
-                    if (onProgress != null) {
-                        val buffer = ByteArray(64 * 1024)
-                        var downloaded = 0L
-                        var lastReport = 0L
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read <= 0) break
-                            outputStream.write(buffer, 0, read)
-                            downloaded += read
-                            if (downloaded - lastReport >= 512 * 1024) {
-                                onProgress(downloaded, contentLength)
-                                lastReport = downloaded
-                            }
+                FileOutputStream(tempFile).use { out ->
+                    val buffer = ByteArray(64 * 1024)
+                    var downloaded = 0L
+                    var lastReport = 0L
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n <= 0) break
+                        out.write(buffer, 0, n)
+                        downloaded += n
+                        if (onProgress != null && downloaded - lastReport >= 512 * 1024) {
+                            onProgress(downloaded, contentLength)
+                            lastReport = downloaded
                         }
-                        onProgress(downloaded, contentLength)
-                    } else {
-                        input.copyTo(outputStream)
                     }
+                    onProgress?.invoke(downloaded, contentLength)
                 }
             }
-            if (tempFile.length() <= 0L) {
-                error("ダウンロードサイズが0です")
-            }
-            if (output.exists() && !output.delete()) {
-                error("既存ファイルを置換できません: ${output.name}")
-            }
+            if (tempFile.length() <= 0L) error("ダウンロードサイズが0")
+            if (output.exists() && !output.delete()) error("既存ファイルを置換できません: ${output.name}")
             if (!tempFile.renameTo(output)) {
                 tempFile.copyTo(output, overwrite = true)
                 tempFile.delete()
@@ -716,237 +568,20 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupPreferenceSpinners() {
-        formatStrengthSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            formatStrengthLabels
-        ).also { adapter ->
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-        englishStyleSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            englishStyleLabels
-        ).also { adapter ->
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-
-        formatStrengthSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                if (suppressPreferenceEvents || !unlocked) return
-                val value = formatStrengthValues.getOrNull(position) ?: return
-                lifecycleScope.launch {
-                    configRepository.setFormatStrength(value)
-                    toast("文章整形の強さを保存しました: ${formatStrengthLabels[position]}")
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
-
-        englishStyleSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                if (suppressPreferenceEvents || !unlocked) return
-                val value = englishStyleValues.getOrNull(position) ?: return
-                lifecycleScope.launch {
-                    configRepository.setEnglishStyle(value)
-                    toast("英語翻訳スタイルを保存しました: ${englishStyleLabels[position]}")
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+    private fun formatBytes(bytes: Long): String {
+        if (bytes <= 0L) return "0 B"
+        val kb = 1024.0
+        val mb = kb * 1024.0
+        val gb = mb * 1024.0
+        return when {
+            bytes >= gb -> String.format("%.2f GB", bytes / gb)
+            bytes >= mb -> String.format("%.1f MB", bytes / mb)
+            bytes >= kb -> String.format("%.1f KB", bytes / kb)
+            else -> "$bytes B"
         }
     }
 
-    private suspend fun importLocalLlmModel(uri: Uri): Long = withContext(Dispatchers.IO) {
-        runCatching {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }
-
-        val targetDir = File(filesDir, "local_llm").apply { mkdirs() }
-        val targetFile = File(targetDir, "model.gguf")
-        val input = contentResolver.openInputStream(uri)
-            ?: error("選択したファイルを読み込めません")
-        input.use { source ->
-            FileOutputStream(targetFile).use { sink ->
-                source.copyTo(sink)
-            }
-        }
-        if (targetFile.length() <= 0L) {
-            error("モデルファイルが空です")
-        }
-        targetFile.length()
-    }
-
-    private suspend fun importAsrModelFromTree(treeUri: Uri): Int = withContext(Dispatchers.IO) {
-        runCatching {
-            contentResolver.takePersistableUriPermission(
-                treeUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }
-
-        val root = DocumentFile.fromTreeUri(this@SettingsActivity, treeUri)
-            ?: error("フォルダを開けません")
-
-        val modelFiles = mutableListOf<DocumentFile>()
-        collectAsrModelFiles(root, modelFiles)
-        val filtered = modelFiles
-            .filter { file ->
-                val name = file.name?.lowercase(Locale.US).orEmpty()
-                name.endsWith(".onnx") || name == "tokens.txt"
-            }
-            .distinctBy { it.uri.toString() }
-
-        val hasTokens = filtered.any { it.name.equals("tokens.txt", ignoreCase = true) }
-        val hasOnnx = filtered.any { it.name?.lowercase(Locale.US)?.endsWith(".onnx") == true }
-        if (!hasTokens || !hasOnnx) {
-            error("tokens.txt と .onnx を含むASRモデルフォルダを選択してください")
-        }
-
-        val baseDir = SherpaAsrModelSupport.ensureBaseDir(this@SettingsActivity)
-        val fastDir = File(baseDir, "fast").apply {
-            if (exists()) deleteRecursively()
-            mkdirs()
-        }
-
-        val usedNames = mutableSetOf<String>()
-        var copiedCount = 0
-        filtered.forEachIndexed { index, file ->
-            val safeName = uniqueFileName(
-                desired = sanitizeFileName(file.name ?: "model_$index.bin"),
-                used = usedNames
-            )
-            val target = File(fastDir, safeName)
-            val input = contentResolver.openInputStream(file.uri) ?: return@forEachIndexed
-            input.use { source ->
-                FileOutputStream(target).use { sink ->
-                    source.copyTo(sink)
-                }
-            }
-            if (target.length() > 0L) {
-                copiedCount += 1
-            } else {
-                runCatching { target.delete() }
-            }
-        }
-
-        if (copiedCount <= 0) {
-            error("ASRモデルのコピーに失敗しました")
-        }
-        copiedCount
-    }
-
-    private suspend fun importAsrModelFromUris(uris: List<Uri>): Int = withContext(Dispatchers.IO) {
-        data class SourceFile(val uri: Uri, val name: String)
-
-        val sources = uris
-            .asSequence()
-            .mapNotNull { uri ->
-                runCatching {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-                val name = DocumentFile.fromSingleUri(this@SettingsActivity, uri)?.name
-                    ?: uri.lastPathSegment
-                    ?: "model.bin"
-                SourceFile(uri = uri, name = sanitizeFileName(name))
-            }
-            .toList()
-        if (sources.isEmpty()) {
-            error("ASRファイルを選択してください")
-        }
-
-        val filtered = sources.filter { source ->
-            val lower = source.name.lowercase(Locale.US)
-            lower.endsWith(".onnx") || lower == "tokens.txt"
-        }
-        val hasTokens = filtered.any { it.name.equals("tokens.txt", ignoreCase = true) }
-        val hasOnnx = filtered.any { it.name.lowercase(Locale.US).endsWith(".onnx") }
-        if (!hasTokens || !hasOnnx) {
-            error("tokens.txt と .onnx を同時に選択してください")
-        }
-
-        val baseDir = SherpaAsrModelSupport.ensureBaseDir(this@SettingsActivity)
-        val fastDir = File(baseDir, "fast").apply {
-            if (exists()) deleteRecursively()
-            mkdirs()
-        }
-
-        val usedNames = mutableSetOf<String>()
-        var copiedCount = 0
-        filtered.forEachIndexed { index, source ->
-            val safeName = uniqueFileName(
-                desired = sanitizeFileName(source.name.ifBlank { "model_$index.bin" }),
-                used = usedNames
-            )
-            val target = File(fastDir, safeName)
-            val input = contentResolver.openInputStream(source.uri) ?: return@forEachIndexed
-            input.use { inStream ->
-                FileOutputStream(target).use { outStream ->
-                    inStream.copyTo(outStream)
-                }
-            }
-            if (target.length() > 0L) {
-                copiedCount += 1
-            } else {
-                runCatching { target.delete() }
-            }
-        }
-
-        if (copiedCount <= 0) {
-            error("ASRモデルのコピーに失敗しました")
-        }
-        copiedCount
-    }
-
-    private fun collectAsrModelFiles(node: DocumentFile, output: MutableList<DocumentFile>, depth: Int = 0) {
-        if (depth > 5) return
-        if (node.isFile) {
-            output += node
-            return
-        }
-        if (!node.isDirectory) return
-        node.listFiles().forEach { child ->
-            collectAsrModelFiles(child, output, depth + 1)
-        }
-    }
-
-    private fun sanitizeFileName(name: String): String {
-        val trimmed = name.trim().ifBlank { "model.bin" }
-        return trimmed.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    }
-
-    private fun uniqueFileName(desired: String, used: MutableSet<String>): String {
-        if (used.add(desired)) return desired
-
-        val dot = desired.lastIndexOf('.')
-        val base = if (dot > 0) desired.substring(0, dot) else desired
-        val ext = if (dot > 0) desired.substring(dot) else ""
-        var serial = 2
-        while (true) {
-            val candidate = "${base}_$serial$ext"
-            if (used.add(candidate)) return candidate
-            serial += 1
-        }
-    }
-
-    private fun updateSpinnerSelections(config: AppConfigRepository.AppConfig) {
-        suppressPreferenceEvents = true
-        val strengthIndex = formatStrengthValues.indexOf(config.formatStrength).let { if (it >= 0) it else 1 }
-        val englishIndex = englishStyleValues.indexOf(config.englishStyle).let { if (it >= 0) it else 0 }
-        if (formatStrengthSpinner.selectedItemPosition != strengthIndex) {
-            formatStrengthSpinner.setSelection(strengthIndex, false)
-        }
-        if (englishStyleSpinner.selectedItemPosition != englishIndex) {
-            englishStyleSpinner.setSelection(englishIndex, false)
-        }
-        suppressPreferenceEvents = false
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

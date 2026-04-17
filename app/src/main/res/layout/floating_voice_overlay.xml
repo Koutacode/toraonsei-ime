@@ -7,10 +7,10 @@
 
     <LinearLayout
         android:id="@+id/bubbleContainer"
-        android:layout_width="280dp"
+        android:layout_width="320dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_marginEnd="64dp"
+        android:layout_marginEnd="68dp"
         android:layout_marginBottom="4dp"
         android:background="@drawable/bg_floating_bubble"
         android:orientation="vertical"
@@ -26,13 +26,29 @@
             android:textSize="11sp" />
 
         <TextView
-            android:id="@+id/floatingPreviewText"
+            android:id="@+id/floatingAppContextText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:maxLines="6"
+            android:layout_marginTop="2dp"
+            android:textColor="#80CBC4"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/floatingPreviewEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@android:color/transparent"
+            android:hint="ここに認識結果が表示されます（編集可能）"
             android:textColor="#FFFFFF"
-            android:textSize="15sp" />
+            android:textColorHint="#607D8B"
+            android:textSize="15sp"
+            android:minLines="2"
+            android:maxLines="8"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textAutoCorrect"
+            android:autofillHints="" />
 
         <LinearLayout
             android:id="@+id/floatingActionRow"
@@ -58,18 +74,28 @@
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="6dp"
                 android:minWidth="0dp"
                 android:text="コピー"
                 android:textSize="13sp"
                 app:cornerRadius="8dp" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/floatingUndoButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:minWidth="0dp"
+                android:text="戻す"
+                android:textSize="13sp" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/floatingClearButton"
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="2dp"
                 android:minWidth="0dp"
                 android:text="消去"
                 android:textSize="13sp" />
@@ -79,8 +105,8 @@
     <com.google.android.material.button.MaterialButton
         android:id="@+id/floatingMicButton"
         style="@style/Widget.Material3.Button"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
+        android:layout_width="60dp"
+        android:layout_height="60dp"
         android:layout_gravity="bottom|end"
         android:backgroundTint="#00897B"
         android:insetLeft="0dp"
@@ -88,8 +114,8 @@
         android:insetRight="0dp"
         android:insetBottom="0dp"
         android:text="🎤"
-        android:textSize="24sp"
-        app:cornerRadius="28dp"
+        android:textSize="26sp"
+        app:cornerRadius="30dp"
         app:iconPadding="0dp" />
 
 </FrameLayout>

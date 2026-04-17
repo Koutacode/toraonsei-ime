@@ -100,7 +100,8 @@ class DictionaryActivity : AppCompatActivity() {
         listItems.clear()
         listItems.addAll(
             entries.map { entry ->
-                "単語:${entry.word} / 読み:${entry.readingKana} / 優先度:${entry.priority}"
+                "${entry.readingKana} → ${entry.word}" +
+                    (if (entry.priority != 0) "  (優先度 ${entry.priority})" else "")
             }
         )
         adapter.notifyDataSetChanged()
@@ -112,7 +113,7 @@ class DictionaryActivity : AppCompatActivity() {
         val priority = priorityInput.text?.toString()?.toIntOrNull() ?: 0
 
         if (word.isBlank() || reading.isBlank()) {
-            toast("単語と読みは必須です")
+            toast("読み・書きの両方を入力してください")
             return
         }
 
@@ -143,7 +144,7 @@ class DictionaryActivity : AppCompatActivity() {
                 val reading = readingEdit.text?.toString().orEmpty().trim()
                 val priority = priorityEdit.text?.toString()?.toIntOrNull() ?: 0
                 if (word.isBlank() || reading.isBlank()) {
-                    toast("単語と読みは必須です")
+                    toast("読み・書きの両方を入力してください")
                     return@setPositiveButton
                 }
                 lifecycleScope.launch {

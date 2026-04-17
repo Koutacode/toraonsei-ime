@@ -4,11 +4,19 @@ import android.accessibilityservice.AccessibilityService
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.toraonsei.session.AppContextProvider
 
 class TextInjectionAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // No-op: we only use this service for text injection on demand.
+        event ?: return
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                AppContextProvider.updateFromAccessibility(applicationContext, event.packageName)
+            }
+        }
     }
 
     override fun onInterrupt() {
@@ -22,6 +30,7 @@ class TextInjectionAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        AppContextProvider.clear()
         super.onDestroy()
     }
 
@@ -81,8 +90,6 @@ class TextInjectionAccessibilityService : AccessibilityService() {
             return focused
         }
         focused?.recycle()
-
-        // Fallback: search for any focused editable node
         return findEditableNodeRecursive(root)
     }
 
@@ -100,15 +107,15 @@ class TextInjectionAccessibilityService : AccessibilityService() {
     }
 
     private fun performTextInjection(node: AccessibilityNodeInfo, text: String): Boolean {
-        // Try ACTION_SET_TEXT first (API 21+)
+        val existing = node.text?.toString().orEmpty()
+        val combined = if (existing.isBlank()) text else "$existing$text"
         val args = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, combined)
         }
         if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
             return true
         }
 
-        // Fallback: paste from clipboard
         val clipboard = android.content.ClipData.newPlainText("toraonsei", text)
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(clipboard)

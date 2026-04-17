@@ -1,7 +1,6 @@
 package com.toraonsei.floating
 
 import android.annotation.SuppressLint
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -16,12 +15,15 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -29,11 +31,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.view.isVisible
 import androidx.window.layout.FoldingFeature
 import com.toraonsei.R
-import com.toraonsei.engine.HybridLocalInferenceEngine
+import com.toraonsei.dict.UserDictionaryRepository
 import com.toraonsei.engine.LocalLlmInferenceEngine
+import com.toraonsei.engine.TypelessFormatter
 import com.toraonsei.engine.UsageSceneMode
-import com.toraonsei.format.FormatStrength
-import com.toraonsei.format.LocalFormatter
+import com.toraonsei.session.AppContextProvider
 import com.toraonsei.settings.AppConfigRepository
 import com.toraonsei.settings.SettingsActivity
 import com.toraonsei.speech.RecognitionTextCleaner
@@ -46,7 +48,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 class FloatingVoiceService : Service(), SpeechController.Callback {
@@ -56,50 +57,69 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     private lateinit var windowManager: WindowManager
     private lateinit var speechController: SpeechController
     private lateinit var localLlmEngine: LocalLlmInferenceEngine
+    private lateinit var userDictionary: UserDictionaryRepository
+    private lateinit var typelessFormatter: TypelessFormatter
     private lateinit var appConfigRepository: AppConfigRepository
 
-    private val formatter = LocalFormatter()
-    private val inferenceEngine = HybridLocalInferenceEngine(formatter)
     private val textCleaner = RecognitionTextCleaner()
 
     private var overlayView: View? = null
     private var micButton: Button? = null
     private var bubbleContainer: LinearLayout? = null
     private var statusText: TextView? = null
-    private var previewText: TextView? = null
+    private var appContextText: TextView? = null
+    private var previewEdit: EditText? = null
     private var actionRow: LinearLayout? = null
     private var insertButton: Button? = null
     private var copyButton: Button? = null
+    private var undoButton: Button? = null
     private var clearButton: Button? = null
 
+    private enum class RecordTrigger { NONE, TAP, LONG_PRESS }
+
     private var isRecording = false
-    private var formattedResult = ""
+    private var recordTrigger = RecordTrigger.NONE
     private var rawVoiceText = StringBuilder()
+    private var formattedResult = ""
+    private var lastInsertedText = ""
     private var formatJob: Job? = null
     private var usageSceneMode = UsageSceneMode.MESSAGE
-    private var formatStrength = FormatStrength.NORMAL
+    private var currentAppPackage: String? = null
+    private var currentAppLabel: String? = null
 
     private var layoutParams: WindowManager.LayoutParams? = null
     private var foldableController: FoldableLayoutController? = null
     private var lastFoldingFeature: FoldingFeature? = null
     private var lastWindowBounds: Rect = Rect()
+
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var initialX = 0
     private var initialY = 0
     private var isMoved = false
+    private var touchDownAtMs = 0L
+    private var longPressJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         speechController = SpeechController(this, this)
         localLlmEngine = LocalLlmInferenceEngine(this)
+        userDictionary = UserDictionaryRepository(this)
+        typelessFormatter = TypelessFormatter(localLlmEngine, userDictionary)
         appConfigRepository = AppConfigRepository(this)
 
         serviceScope.launch {
             appConfigRepository.configFlow.collectLatest { config ->
                 usageSceneMode = UsageSceneMode.fromConfig(config.usageSceneMode)
-                formatStrength = FormatStrength.fromConfig(config.formatStrength)
+            }
+        }
+
+        serviceScope.launch {
+            AppContextProvider.focusedApp.collectLatest { app ->
+                currentAppPackage = app?.packageName
+                currentAppLabel = app?.label
+                renderAppContext()
             }
         }
 
@@ -130,7 +150,8 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        stopRecording()
+        stopRecordingIfActive()
+        longPressJob?.cancel()
         foldableController?.stop()
         foldableController = null
         removeOverlay()
@@ -162,44 +183,40 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     // region SpeechController.Callback
 
     override fun onReady() {
-        updateStatus("録音中...")
+        updateStatus("録音中... 話しかけてください")
     }
 
     override fun onPartial(text: String) {
         val cleaned = textCleaner.cleanPartial(text.trim())
-        if (cleaned.isNotBlank()) {
-            val preview = buildPreviewText(cleaned)
-            showPreview(preview)
-            updateStatus("認識中... (${preview.length}文字)")
-        }
+        if (cleaned.isBlank()) return
+        val preview = buildCombinedPreview(cleaned)
+        setPreview(preview)
+        updateStatus("認識中... (${preview.length}文字)")
     }
 
     override fun onFinal(text: String, alternatives: List<String>) {
         val best = alternatives
             .map { textCleaner.cleanFinal(it.trim()) }
-            .filter { it.isNotBlank() }
-            .firstOrNull() ?: textCleaner.cleanFinal(text.trim())
+            .firstOrNull { it.isNotBlank() }
+            ?: textCleaner.cleanFinal(text.trim())
         if (best.isBlank()) return
 
         appendVoiceSegment(best)
-        showPreview(rawVoiceText.toString())
+        setPreview(rawVoiceText.toString())
         updateStatus("録音中... (${rawVoiceText.length}文字)")
     }
 
     override fun onError(message: String) {
-        if (isRecording) {
-            updateStatus("再開中...")
-        } else {
-            updateStatus(message)
-        }
+        updateStatus(if (isRecording) "再接続中..." else message)
     }
 
     override fun onEnd() {
         if (isRecording) {
+            // 連続収集: 発話切れで自動再開
             serviceScope.launch {
-                delay(200)
+                delay(180)
                 if (isRecording) {
-                    speechController.startListening()
+                    speechController.startListening(biasHints = collectBiasHints())
                 }
             }
         } else if (rawVoiceText.isNotBlank()) {
@@ -209,21 +226,24 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
 
     // endregion
 
-    private fun startRecording() {
+    private fun startRecording(trigger: RecordTrigger) {
+        if (isRecording) return
         isRecording = true
+        recordTrigger = trigger
         rawVoiceText.setLength(0)
         formattedResult = ""
         showBubble(true)
-        updateStatus("録音開始...")
-        showPreview("")
+        setPreview("")
         showActions(false)
         updateMicButtonState()
-        speechController.startListening()
+        updateStatus("録音開始...")
+        speechController.startListening(biasHints = collectBiasHints())
     }
 
-    private fun stopRecording() {
+    private fun stopRecordingIfActive() {
         if (!isRecording) return
         isRecording = false
+        recordTrigger = RecordTrigger.NONE
         updateMicButtonState()
         speechController.stopListening()
         if (rawVoiceText.isNotBlank()) {
@@ -232,7 +252,7 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         } else {
             updateStatus("音声が検出されませんでした")
             serviceScope.launch {
-                delay(2000)
+                delay(1800)
                 if (!isRecording && formattedResult.isBlank()) {
                     showBubble(false)
                 }
@@ -243,45 +263,25 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     private fun runFormatting() {
         formatJob?.cancel()
         formatJob = serviceScope.launch {
-            updateStatus("AI整形中...")
             val raw = rawVoiceText.toString().trim()
             if (raw.isBlank()) {
                 updateStatus("テキストが空です")
                 return@launch
             }
-
-            val formatted = withContext(Dispatchers.IO) {
-                val request = HybridLocalInferenceEngine.Request(
-                    input = raw,
-                    beforeCursor = "",
-                    afterCursor = "",
-                    appHistory = "",
-                    dictionaryWords = emptySet(),
+            updateStatus("AI整形中...")
+            val result = typelessFormatter.format(
+                TypelessFormatter.Request(
+                    rawText = raw,
                     sceneMode = usageSceneMode,
-                    trigger = HybridLocalInferenceEngine.Trigger.VOICE_INPUT,
-                    strength = formatStrength
+                    appPackageName = currentAppPackage,
+                    appLabel = currentAppLabel
                 )
-                inferenceEngine.infer(request)
-            }
-
-            val result = if (formatted.isNotBlank()) formatted else raw
-
-            // 会話モードではLINE等向けに文末の「。」を除去
-            formattedResult = if (usageSceneMode == UsageSceneMode.MESSAGE) {
-                removeTrailingPeriod(result)
-            } else {
-                result
-            }
-
-            showPreview(formattedResult)
+            )
+            formattedResult = result.formatted
+            setPreview(formattedResult)
             showActions(true)
-            updateStatus("整形完了 (${formattedResult.length}文字)")
-        }
-    }
-
-    private fun removeTrailingPeriod(text: String): String {
-        return text.trimEnd().let { trimmed ->
-            if (trimmed.endsWith("。")) trimmed.dropLast(1) else trimmed
+            val indicator = if (result.usedLlm) "AI整形" else "素のテキスト"
+            updateStatus("$indicator 完了 (${formattedResult.length}文字)")
         }
     }
 
@@ -301,7 +301,7 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         rawVoiceText.append(" ").append(segment)
     }
 
-    private fun buildPreviewText(tail: String): String {
+    private fun buildCombinedPreview(tail: String): String {
         val base = rawVoiceText.toString().trim()
         if (base.isBlank()) return tail
         if (tail.isBlank()) return base
@@ -309,16 +309,59 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         return "$base $tail"
     }
 
-    private fun insertText() {
-        if (formattedResult.isBlank()) return
-        val injected = TextInjectionAccessibilityService.injectText(formattedResult)
+    private fun collectBiasHints(): List<String> {
+        val entries = runCatching { kotlinx.coroutines.runBlocking { userDictionary.getEntriesOnce() } }
+            .getOrDefault(emptyList())
+        val words = entries
+            .asSequence()
+            .filter { it.word.isNotBlank() }
+            .sortedByDescending { it.priority }
+            .map { it.word }
+            .toList()
+        val appLabel = currentAppLabel
+        return if (appLabel.isNullOrBlank()) words else (words + appLabel)
+    }
+
+    private fun editedOrFormatted(): String {
+        val edited = previewEdit?.text?.toString()?.trim().orEmpty()
+        return edited.ifBlank { formattedResult }
+    }
+
+    private fun performInsert() {
+        val text = editedOrFormatted()
+        if (text.isBlank()) return
+        val injected = TextInjectionAccessibilityService.injectText(text)
         if (injected) {
+            lastInsertedText = text
             showToast("テキストを挿入しました")
         } else {
-            copyToClipboard(formattedResult)
-            showToast("クリップボードにコピーしました（貼り付けてください）")
+            copyToClipboard(text)
+            lastInsertedText = text
+            showToast("クリップボードにコピー（貼り付けてください）")
         }
-        resetState()
+        resetStateAfterSuccess()
+    }
+
+    private fun performCopy() {
+        val text = editedOrFormatted()
+        if (text.isBlank()) return
+        copyToClipboard(text)
+        lastInsertedText = text
+        showToast("コピーしました")
+        resetStateAfterSuccess()
+    }
+
+    private fun performUndo() {
+        if (lastInsertedText.isBlank()) {
+            showToast("戻せる履歴はありません")
+            return
+        }
+        val cleared = TextInjectionAccessibilityService.injectText("")
+        if (cleared) {
+            showToast("直前の挿入を取り消しました")
+        } else {
+            showToast("自動で戻せません。手動で削除してください")
+        }
     }
 
     private fun copyToClipboard(text: String) {
@@ -326,10 +369,10 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         clipboard.setPrimaryClip(ClipData.newPlainText("toraonsei", text))
     }
 
-    private fun resetState() {
+    private fun resetStateAfterSuccess() {
         formattedResult = ""
         rawVoiceText.setLength(0)
-        showPreview("")
+        setPreview("")
         showActions(false)
         updateStatus("待機中")
         serviceScope.launch {
@@ -338,6 +381,15 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
                 showBubble(false)
             }
         }
+    }
+
+    private fun clearCurrentDraft() {
+        formatJob?.cancel()
+        formattedResult = ""
+        rawVoiceText.setLength(0)
+        setPreview("")
+        showActions(false)
+        updateStatus("消去しました")
     }
 
     // region Overlay UI
@@ -353,10 +405,12 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         micButton = view.findViewById(R.id.floatingMicButton)
         bubbleContainer = view.findViewById(R.id.bubbleContainer)
         statusText = view.findViewById(R.id.floatingStatusText)
-        previewText = view.findViewById(R.id.floatingPreviewText)
+        appContextText = view.findViewById(R.id.floatingAppContextText)
+        previewEdit = view.findViewById(R.id.floatingPreviewEdit)
         actionRow = view.findViewById(R.id.floatingActionRow)
         insertButton = view.findViewById(R.id.floatingInsertButton)
         copyButton = view.findViewById(R.id.floatingCopyButton)
+        undoButton = view.findViewById(R.id.floatingUndoButton)
         clearButton = view.findViewById(R.id.floatingClearButton)
 
         val params = WindowManager.LayoutParams(
@@ -369,29 +423,26 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = 24
-            y = 200
+            y = 220
         }
         layoutParams = params
 
-        micButton?.setOnTouchListener { v, event ->
-            handleMicTouch(v, event, params)
-        }
+        micButton?.setOnTouchListener { v, event -> handleMicTouch(v, event, params) }
 
-        insertButton?.setOnClickListener { insertText() }
-        copyButton?.setOnClickListener {
-            if (formattedResult.isNotBlank()) {
-                copyToClipboard(formattedResult)
-                showToast("コピーしました")
-                resetState()
-            }
-        }
-        clearButton?.setOnClickListener { resetState() }
+        insertButton?.setOnClickListener { performInsert() }
+        copyButton?.setOnClickListener { performCopy() }
+        undoButton?.setOnClickListener { performUndo() }
+        clearButton?.setOnClickListener { clearCurrentDraft() }
 
         windowManager.addView(view, params)
+        renderAppContext()
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun handleMicTouch(v: View, event: MotionEvent, params: WindowManager.LayoutParams): Boolean {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        val longPressMs = ViewConfiguration.getLongPressTimeout().toLong()
+
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 initialX = params.x
@@ -399,30 +450,52 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
                 initialTouchX = event.rawX
                 initialTouchY = event.rawY
                 isMoved = false
+                touchDownAtMs = SystemClock.uptimeMillis()
+
+                longPressJob?.cancel()
+                longPressJob = serviceScope.launch {
+                    delay(longPressMs)
+                    if (!isMoved && !isRecording) {
+                        startRecording(RecordTrigger.LONG_PRESS)
+                    }
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - initialTouchX
                 val dy = event.rawY - initialTouchY
-                if (abs(dx) > 10 || abs(dy) > 10) {
+                if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
+                    if (!isMoved) {
+                        longPressJob?.cancel()
+                    }
                     isMoved = true
                 }
                 if (isMoved) {
-                    params.x = initialX - dx.toInt()
-                    params.y = initialY - dy.toInt()
-                    overlayView?.let {
-                        windowManager.updateViewLayout(it, params)
-                    }
+                    params.x = (initialX - dx.toInt()).coerceAtLeast(0)
+                    params.y = (initialY - dy.toInt()).coerceAtLeast(0)
+                    overlayView?.let { runCatching { windowManager.updateViewLayout(it, params) } }
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!isMoved) {
-                    if (isRecording) {
-                        stopRecording()
-                    } else {
-                        startRecording()
+                longPressJob?.cancel()
+                if (isMoved) return true
+                val elapsed = SystemClock.uptimeMillis() - touchDownAtMs
+                when {
+                    recordTrigger == RecordTrigger.LONG_PRESS -> stopRecordingIfActive()
+                    elapsed >= longPressMs -> {
+                        // すでに録音開始しているはず。安全策で止める
+                        stopRecordingIfActive()
                     }
+                    isRecording -> stopRecordingIfActive()
+                    else -> startRecording(RecordTrigger.TAP)
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                longPressJob?.cancel()
+                if (recordTrigger == RecordTrigger.LONG_PRESS && isRecording) {
+                    stopRecordingIfActive()
                 }
                 return true
             }
@@ -431,17 +504,17 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     }
 
     private fun removeOverlay() {
-        overlayView?.let {
-            runCatching { windowManager.removeView(it) }
-        }
+        overlayView?.let { runCatching { windowManager.removeView(it) } }
         overlayView = null
         micButton = null
         bubbleContainer = null
         statusText = null
-        previewText = null
+        appContextText = null
+        previewEdit = null
         actionRow = null
         insertButton = null
         copyButton = null
+        undoButton = null
         clearButton = null
     }
 
@@ -465,13 +538,27 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
         statusText?.text = text
     }
 
-    private fun showPreview(text: String) {
-        previewText?.text = text
-        previewText?.isVisible = text.isNotBlank()
+    private fun setPreview(text: String) {
+        val edit = previewEdit ?: return
+        if (edit.text?.toString() != text) {
+            edit.setText(text)
+            edit.setSelection(edit.text?.length ?: 0)
+        }
     }
 
     private fun showActions(visible: Boolean) {
         actionRow?.isVisible = visible
+    }
+
+    private fun renderAppContext() {
+        val label = currentAppLabel
+        val view = appContextText ?: return
+        if (label.isNullOrBlank()) {
+            view.isVisible = false
+        } else {
+            view.text = "対象: $label"
+            view.isVisible = true
+        }
     }
 
     private fun showToast(message: String) {
@@ -479,8 +566,6 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
     }
 
     // endregion
-
-    // region Notification
 
     private fun startForegroundWithNotification() {
         val channelId = "floating_voice"
@@ -529,8 +614,6 @@ class FloatingVoiceService : Service(), SpeechController.Callback {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
-
-    // endregion
 
     companion object {
         const val ACTION_STOP = "com.toraonsei.floating.ACTION_STOP"
